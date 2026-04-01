@@ -87,8 +87,8 @@ docker compose up -d
 To pin to a specific version, update `.env`:
 
 ```bash
-DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-backend:1.2.3
-DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-frontend:1.2.3
+DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-backend:1.1.0
+DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-frontend:1.1.0
 ```
 
 Then re-run `./scripts/install.sh` or `docker compose up -d`.
@@ -108,7 +108,7 @@ VECTOR_STORE_TYPE=pgvector
 AZURE_SEARCH_ENABLED=false
 ```
 
-The `docker-compose.yml` uses the `pgvector/pgvector:pg17` image which includes the extension pre-installed. `install.sh` sets `SPRING_AUTOCONFIGURE_EXCLUDE` automatically to disable the Azure vector store autoconfiguration.
+The `docker-compose.yml` uses the `pgvector/pgvector:pg18` image which includes the extension pre-installed. `install.sh` sets `SPRING_AUTOCONFIGURE_EXCLUDE` automatically to disable the Azure vector store autoconfiguration.
 
 ### Mode B: Azure AI Search (optional, faster hybrid search)
 
@@ -193,6 +193,17 @@ docker compose logs backend --tail=100
 Common causes:
 - `AZURE_OPENAI_KEY` or `AZURE_OPENAI_ENDPOINT` is still a placeholder value.
 - The PostgreSQL container did not start in time — re-run `./scripts/install.sh`.
+
+### PostgreSQL container fails after upgrading to pg18
+
+PostgreSQL 18 changed the data directory layout. If you see an error about data at `/var/lib/postgresql/data (unused mount/volume)`, remove the old volume and restart:
+
+```bash
+./scripts/uninstall.sh --purge-data
+./scripts/install.sh
+```
+
+**Note:** This deletes all vault database data. Export any connections or settings first if needed.
 
 ### Port conflicts
 
