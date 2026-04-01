@@ -16,9 +16,8 @@ services:
 
   # ── Vault Database (PostgreSQL + pgvector) ──────────────────────────────────
   # pgvector/pgvector image includes the pgvector extension pre-installed.
-  # Switch to postgres:18 if you don't need local vector search (azure mode).
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:pg18
     restart: unless-stopped
     environment:
       POSTGRES_DB:       dba_agent
@@ -32,7 +31,7 @@ services:
     ports:
       - "${DEEPSQL_POSTGRES_PORT:-5432}:5432"
     volumes:
-      - dba-agent-postgres:/var/lib/postgresql/data
+      - dba-agent-postgres:/var/lib/postgresql
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d dba_agent"]
@@ -42,7 +41,7 @@ services:
 
   # ── Cache (Valkey / Redis-compatible) ────────────────────────────────────────
   valkey:
-    image: valkey/valkey:9.0.1
+    image: valkey/valkey:9.0.3
     restart: unless-stopped
     ports:
       - "${DEEPSQL_VALKEY_PORT:-6379}:6379"
