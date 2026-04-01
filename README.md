@@ -194,17 +194,6 @@ Common causes:
 - `AZURE_OPENAI_KEY` or `AZURE_OPENAI_ENDPOINT` is still a placeholder value.
 - The PostgreSQL container did not start in time — re-run `./scripts/install.sh`.
 
-### PostgreSQL container fails after upgrading to pg18
-
-PostgreSQL 18 changed the data directory layout. If you see an error about data at `/var/lib/postgresql/data (unused mount/volume)`, remove the old volume and restart:
-
-```bash
-./scripts/uninstall.sh --purge-data
-./scripts/install.sh
-```
-
-**Note:** This deletes all vault database data. Export any connections or settings first if needed.
-
 ### Port conflicts
 
 If a port is already in use, override it in `.env`:
