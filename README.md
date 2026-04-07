@@ -40,6 +40,16 @@ Open `.env` and fill in the **required** values:
 |---|---|
 | `AZURE_OPENAI_KEY` | Azure OpenAI API key (provided by DeepSQL) |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL (provided by DeepSQL) |
+| `AZURE_OPENAI_CHAT_DEPLOYMENT` | Chat model deployment name (provided by DeepSQL, e.g. `gpt-5.4`) |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Embedding model deployment name (default: `text-embedding-3-large`) |
+
+The following AI settings have sensible defaults in `.env.example` and usually do not need changes:
+
+| Variable | Default | Description |
+|---|---|---|
+| `AZURE_OPENAI_USE_RESPONSES_API` | `true` | Use the Responses API (required for gpt-5.4 and later reasoning models) |
+| `AZURE_OPENAI_EMBEDDING_TIMEOUT_SECONDS` | `20` | Timeout for embedding API calls |
+| `AZURE_OPENAI_EMBEDDING_FAIL_OPEN` | `false` | If `true`, embedding failures are non-fatal; if `false`, they surface as errors |
 
 Security secrets (`SECURITY_JWT_SECRET`, `ENCRYPTION_KEY`, `DB_PASSWORD`) are **auto-generated** by the install script if left as placeholders.
 
@@ -124,8 +134,8 @@ Then restart: `./scripts/install.sh`.
 Update `.env` with the new version provided by DeepSQL:
 
 ```bash
-DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-backend:1.1.0
-DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-frontend:1.1.0
+DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-backend:latest
+DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-frontend:latest
 ```
 
 Then re-run:
@@ -220,6 +230,43 @@ Database connection credentials are encrypted at rest using AES-GCM with the `EN
 - DeepSQL does not have network access to your infrastructure.
 - The only outbound HTTPS traffic is to **Azure OpenAI** (for AI chat and embeddings), using the credentials in `.env`.
 - If you use pgvector mode, all vector embeddings are stored locally — no data leaves your network for RAG storage.
+
+---
+
+## Slack Integration (optional)
+
+DeepSQL includes a Slack bot that connects via [Socket Mode](https://api.slack.com/apis/socket-mode) — no inbound webhooks or public URLs required. Users can query their databases directly from Slack.
+
+To enable, set these in `.env`:
+
+```bash
+SLACK_ENABLED=true
+SLACK_SOCKET_MODE_ENABLED=true
+SLACK_APP_TOKEN=xapp-...
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_SIGNING_SECRET=<your-signing-secret>
+SLACK_DEEPSQL_BOT_USERNAME=<deepsql-user-who-owns-allowed-connections>
+```
+
+**Recommended**: Create a dedicated non-admin DeepSQL user that owns only the database connections Slack should be allowed to query, then set that username as `SLACK_DEEPSQL_BOT_USERNAME`.
+
+Then restart: `./scripts/install.sh`.
+
+---
+
+## Email Notifications (optional)
+
+To enable email notifications (e.g. alerts, reports), configure SMTP in `.env`:
+
+```bash
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USERNAME=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+EMAIL_FROM=noreply@yourcompany.com
+```
+
+Then restart: `./scripts/install.sh`.
 
 ---
 
