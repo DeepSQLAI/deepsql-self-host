@@ -77,6 +77,7 @@ services:
 
       # Self-host should default to the hardened production profile
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SECURITY_PASSWORD_LOGIN_ENABLED: ${SECURITY_PASSWORD_LOGIN_ENABLED:-true}
 
       # DeepSQL-managed AI configuration. The key and endpoint are entered at
       # install time because they are sensitive; model defaults are packaged.
