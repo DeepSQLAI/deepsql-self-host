@@ -1,10 +1,8 @@
 # ── DeepSQL Self-Hosted Stack ─────────────────────────────────────────────────
 # Customer quick start:
-#   1. cp .env.example .env
-#   2. fill in required values in .env
-#   3. ./scripts/self-host/install.sh
+#   curl -fsSL https://install.deepsql.ai/install.sh | bash
 #
-# DeepSQL provides the frontend/backend image references in .env.
+# Application images are public on GitHub Container Registry.
 #
 # Recommended self-host mode:
 #   - Keep Azure OpenAI pointed at DeepSQL-managed credentials for usage metering
@@ -63,7 +61,7 @@ services:
       valkey:
         condition: service_healthy
     env_file:
-      - .env
+      - ${DEEPSQL_ENV_FILE:-.env}
     environment:
       # Vault DB — points to the postgres service above
       DB_URL:       jdbc:postgresql://postgres:5432/dba_agent?sslmode=disable
@@ -79,8 +77,21 @@ services:
 
       # Self-host should default to the hardened production profile
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
-      # Automatically set by install.sh for pgvector self-host mode
-      SPRING_AUTOCONFIGURE_EXCLUDE: ${SPRING_AUTOCONFIGURE_EXCLUDE:-}
+
+      # DeepSQL-managed AI configuration. The key and endpoint are entered at
+      # install time because they are sensitive; model defaults are packaged.
+      AZURE_OPENAI_KEY: ${AZURE_OPENAI_KEY}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_CHAT_DEPLOYMENT: ${AZURE_OPENAI_CHAT_DEPLOYMENT:-gpt-5.4}
+      AZURE_OPENAI_EMBEDDING_DEPLOYMENT: ${AZURE_OPENAI_EMBEDDING_DEPLOYMENT:-text-embedding-3-large}
+      AZURE_OPENAI_USE_RESPONSES_API: ${AZURE_OPENAI_USE_RESPONSES_API:-true}
+      azure.openai.codex-deployment: ${AZURE_OPENAI_CODEX_DEPLOYMENT:-gpt-5.4}
+      azure.openai.responses-api-version: ${AZURE_OPENAI_RESPONSES_API_VERSION:-2025-04-01-preview}
+
+      # Self-host RAG storage is local Postgres + pgvector.
+      VECTOR_STORE_TYPE: pgvector
+      AZURE_SEARCH_ENABLED: "false"
+      SPRING_AUTOCONFIGURE_EXCLUDE: ${SPRING_AUTOCONFIGURE_EXCLUDE:-org.springframework.ai.vectorstore.azure.autoconfigure.AzureVectorStoreAutoConfiguration}
     ports:
       - "${DEEPSQL_BACKEND_PORT:-8080}:8080"
     volumes:

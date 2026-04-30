@@ -8,7 +8,7 @@ Self-hosted Docker deployment for DeepSQL — AI-powered Database Performance As
 
 | Requirement | Version |
 |---|---|
-| Docker Engine | 24+ |
+| Docker Engine / Docker Desktop | 24+; installer can help install if missing |
 | Docker Compose | v2 (included with Docker Desktop) |
 | curl | any recent version |
 | RAM | 4 GB minimum, 8 GB recommended |
@@ -20,70 +20,46 @@ Supported platforms: Linux (amd64, arm64), macOS (Intel, Apple Silicon), Windows
 
 ## Quick Start
 
-### 1. Log in to the container registry
-
-DeepSQL images are hosted on GitHub Container Registry. Use the token provided by DeepSQL:
+Run the installer:
 
 ```bash
-echo '<YOUR_TOKEN>' | docker login ghcr.io -u <YOUR_USERNAME> --password-stdin
+curl -fsSL https://install.deepsql.ai/install.sh | bash
 ```
 
-### 2. Configure your environment
+If Docker is missing, the installer can bootstrap it before starting DeepSQL:
 
-```bash
-cp .env.example .env
-```
+- Linux: prompts, then runs Docker's official `get.docker.com` convenience installer.
+- macOS: prompts, then installs Docker Desktop with `brew install --cask docker` when Homebrew is available, and starts Docker Desktop.
+- Windows/WSL2: install Docker Desktop manually first.
 
-Open `.env` and fill in the **required** values:
-
-| Variable | Description |
-|---|---|
-| `AZURE_OPENAI_KEY` | Azure OpenAI API key (provided by DeepSQL) |
-| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL (provided by DeepSQL) |
-| `AZURE_OPENAI_CHAT_DEPLOYMENT` | Chat model deployment name (provided by DeepSQL, e.g. `gpt-5.4`) |
-| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Embedding model deployment name (default: `text-embedding-3-large`) |
-
-The following AI settings have sensible defaults in `.env.example` and usually do not need changes:
+The script will ask for:
 
 | Variable | Default | Description |
 |---|---|---|
-| `AZURE_OPENAI_USE_RESPONSES_API` | `true` | Use the Responses API (required for gpt-5.4 and later reasoning models) |
-| `AZURE_OPENAI_EMBEDDING_TIMEOUT_SECONDS` | `20` | Timeout for embedding API calls |
-| `AZURE_OPENAI_EMBEDDING_FAIL_OPEN` | `false` | If `true`, embedding failures are non-fatal; if `false`, they surface as errors |
+| `AZURE_OPENAI_KEY` | none | DeepSQL-managed Azure OpenAI key |
+| `AZURE_OPENAI_ENDPOINT` | none | DeepSQL-managed Azure OpenAI endpoint |
+| `DEEPSQL_INITIAL_ADMIN_EMAIL` | `admin@yourcompany.com` | Email for the first admin account |
+| `DEEPSQL_INITIAL_ADMIN_PASSWORD` | none | Strong password for the first admin account |
 
-Security secrets (`SECURITY_JWT_SECRET`, `ENCRYPTION_KEY`, `DB_PASSWORD`) are **auto-generated** by the install script if left as placeholders.
+The installer handles the rest:
 
-### 3. Set up the admin account
+- Downloads this self-host package into `~/.deepsql/self-host`
+- Creates `.env` from `.env.example`
+- Auto-generates security secrets (`SECURITY_JWT_SECRET`, `ENCRYPTION_KEY`, `DB_PASSWORD`, `ADMIN_BOOTSTRAP_SECRET`)
+- Uses public DeepSQL images from `ghcr.io`
+- Uses packaged LLM model defaults after you enter the sensitive key and endpoint
+- Starts PostgreSQL + pgvector, Valkey, Backend, and Frontend
+- Bootstraps the first admin account, then disables the bootstrap endpoint
 
-To create the first admin account on install, set these in `.env`:
-
-```bash
-SECURITY_ADMIN_BOOTSTRAP_ENABLED=true
-ADMIN_BOOTSTRAP_SECRET=<one-time-secret-you-choose>
-DEEPSQL_INITIAL_ADMIN_EMAIL=admin@yourcompany.com
-DEEPSQL_INITIAL_ADMIN_PASSWORD=<strong-password>
-```
-
-### 4. Run the install script
-
-```bash
-./scripts/install.sh
-```
-
-The script will:
-- Auto-generate any missing security secrets
-- Pull the DeepSQL images from `ghcr.io`
-- Start all services (PostgreSQL, Valkey, Backend, Frontend)
-- Wait for health checks to pass
-- Bootstrap the admin account (if configured)
-
-### 5. Open DeepSQL
+Open DeepSQL:
 
 ```
 http://localhost:3000
 ```
 
-Log in with username `admin` and the password you set in step 3.
+Log in with username `admin` and the password you entered during install.
+
+For a local checkout, run `./scripts/install.sh` instead of the curl command.
 
 ---
 
@@ -131,49 +107,42 @@ Then restart: `./scripts/install.sh`.
 
 ## Upgrading
 
-Update `.env` with the new version provided by DeepSQL:
+Re-run the installer:
 
 ```bash
-DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-backend:latest
-DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-frontend:latest
+curl -fsSL https://install.deepsql.ai/install.sh | bash
 ```
 
-Then re-run:
+The installer refreshes the self-host package and pulls the current public images. Your `.env`, data volumes, connections, settings, and chat history are preserved.
+
+From an existing local checkout or install directory, you can also run:
 
 ```bash
 ./scripts/install.sh
 ```
 
-Your data (connections, settings, chat history) is preserved across upgrades.
+### Frontend Hotfix (no image pull required)
+
+For small UI fixes, DeepSQL may provide a bundle URL instead of a full image update:
+
+```bash
+./scripts/update-frontend.sh <BUNDLE_URL>
+```
+
+This downloads the pre-built frontend files and hot-swaps them into the running container — no restart, no image pull, no downtime.
 
 ---
 
 ## Vector Store
 
-DeepSQL uses RAG (Retrieval-Augmented Generation) to improve SQL generation accuracy. Two storage backends are supported:
-
-### Mode A: pgvector (default, recommended for self-hosting)
-
-Embeddings are stored locally in the PostgreSQL vault database. No external dependencies — all data stays within your environment.
+DeepSQL self-host uses PostgreSQL + pgvector for RAG storage by default. Embeddings are stored locally in the PostgreSQL vault database.
 
 ```bash
 VECTOR_STORE_TYPE=pgvector
 AZURE_SEARCH_ENABLED=false
 ```
 
-The `docker-compose.yml` uses the `pgvector/pgvector:pg18` image which includes the extension pre-installed. `install.sh` sets `SPRING_AUTOCONFIGURE_EXCLUDE` automatically to disable the Azure vector store autoconfiguration.
-
-### Mode B: Azure AI Search (optional, faster hybrid search)
-
-If DeepSQL has provisioned an Azure AI Search index for you:
-
-```bash
-VECTOR_STORE_TYPE=azure
-AZURE_SEARCH_ENABLED=true
-AZURE_SEARCH_ENDPOINT=https://<your-resource>.search.windows.net
-AZURE_SEARCH_API_KEY=<your-key>
-AZURE_SEARCH_INDEX_NAME=dba-agent-training-data
-```
+The `docker-compose.yml` uses the `pgvector/pgvector:pg18` image, which includes the extension pre-installed. The installer sets `SPRING_AUTOCONFIGURE_EXCLUDE` to disable Azure vector-store autoconfiguration.
 
 ---
 
@@ -206,11 +175,7 @@ docker compose --project-name deepsql-selfhost restart backend
 
 ### Admin Bootstrap
 
-The admin bootstrap endpoint is only active when `SECURITY_ADMIN_BOOTSTRAP_ENABLED=true`. After the first admin account is created, set it back to `false` in `.env` and restart the backend:
-
-```bash
-docker compose --project-name deepsql-selfhost restart backend
-```
+The installer enables admin bootstrap only for first-run account creation. After the admin account is created, it writes `SECURITY_ADMIN_BOOTSTRAP_ENABLED=false` to `.env` and recreates the backend container with bootstrap disabled.
 
 ### Credential Storage
 
@@ -228,8 +193,8 @@ Database connection credentials are encrypted at rest using AES-GCM with the `EN
 
 - All database connections, credentials, and query data remain within your environment.
 - DeepSQL does not have network access to your infrastructure.
-- The only outbound HTTPS traffic is to **Azure OpenAI** (for AI chat and embeddings), using the credentials in `.env`.
-- If you use pgvector mode, all vector embeddings are stored locally — no data leaves your network for RAG storage.
+- The only outbound HTTPS traffic required for AI is to **Azure OpenAI** for chat and embeddings, using the key and endpoint entered during install.
+- Vector embeddings are stored locally in pgvector.
 
 ---
 
@@ -278,13 +243,12 @@ Then restart: `./scripts/install.sh`.
 Error: cannot access Docker images from the registry.
 ```
 
-You need to log in to `ghcr.io` first:
+DeepSQL images should be public on GitHub Container Registry and should not require `docker login`. Check network access to `ghcr.io` and confirm the image names in `.env` are still:
 
 ```bash
-echo '<YOUR_TOKEN>' | docker login ghcr.io -u <YOUR_USERNAME> --password-stdin
+DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-backend:latest
+DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-frontend:latest
 ```
-
-Contact DeepSQL support if you do not have a token.
 
 ### Backend not healthy
 
@@ -295,8 +259,8 @@ docker compose --project-name deepsql-selfhost logs backend --tail=100
 ```
 
 Common causes:
-- `AZURE_OPENAI_KEY` or `AZURE_OPENAI_ENDPOINT` is still a placeholder value.
 - The PostgreSQL container did not start in time — re-run `./scripts/install.sh`.
+- The public images could not be pulled from `ghcr.io`.
 
 ### Cannot connect to my database
 
@@ -319,8 +283,6 @@ Then restart: `./scripts/install.sh`.
 
 ```bash
 ./scripts/uninstall.sh --purge-data
-cp .env.example .env
-# fill in your values again
 ./scripts/install.sh
 ```
 
