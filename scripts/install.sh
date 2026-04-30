@@ -13,6 +13,45 @@ PRESET_AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
 PRESET_INITIAL_ADMIN_EMAIL="${DEEPSQL_INITIAL_ADMIN_EMAIL:-}"
 PRESET_INITIAL_ADMIN_PASSWORD="${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}"
 
+capture_preset_var() {
+  local name="$1"
+  local has_name="HAS_PRESET_${name}"
+  local value_name="PRESET_${name}"
+  if declare -p "$name" >/dev/null 2>&1; then
+    printf -v "$has_name" '%s' "true"
+    printf -v "$value_name" '%s' "${!name}"
+  else
+    printf -v "$has_name" '%s' "false"
+    printf -v "$value_name" '%s' ""
+  fi
+}
+
+apply_preset_var() {
+  local name="$1"
+  local has_name="HAS_PRESET_${name}"
+  local value_name="PRESET_${name}"
+  if [[ "${!has_name:-false}" == "true" ]]; then
+    set_env_value "$name" "${!value_name}"
+  fi
+}
+
+for preset_name in \
+  DEEPSQL_BACKEND_IMAGE \
+  DEEPSQL_FRONTEND_IMAGE \
+  DEEPSQL_SKIP_IMAGE_PULL \
+  DEEPSQL_FRONTEND_PORT \
+  DEEPSQL_BACKEND_PORT \
+  DEEPSQL_POSTGRES_PORT \
+  DEEPSQL_VALKEY_PORT \
+  CORS_ALLOWED_ORIGINS \
+  SPRING_PROFILES_ACTIVE \
+  VECTOR_STORE_TYPE \
+  AZURE_SEARCH_ENABLED \
+  SPRING_AUTOCONFIGURE_EXCLUDE
+do
+  capture_preset_var "$preset_name"
+done
+
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Error: required command '$1' is not installed." >&2
@@ -405,6 +444,23 @@ apply_preset_value AZURE_OPENAI_KEY "$PRESET_AZURE_OPENAI_KEY"
 apply_preset_value AZURE_OPENAI_ENDPOINT "$PRESET_AZURE_OPENAI_ENDPOINT"
 apply_preset_value DEEPSQL_INITIAL_ADMIN_EMAIL "$PRESET_INITIAL_ADMIN_EMAIL"
 apply_preset_value DEEPSQL_INITIAL_ADMIN_PASSWORD "$PRESET_INITIAL_ADMIN_PASSWORD"
+
+for preset_name in \
+  DEEPSQL_BACKEND_IMAGE \
+  DEEPSQL_FRONTEND_IMAGE \
+  DEEPSQL_SKIP_IMAGE_PULL \
+  DEEPSQL_FRONTEND_PORT \
+  DEEPSQL_BACKEND_PORT \
+  DEEPSQL_POSTGRES_PORT \
+  DEEPSQL_VALKEY_PORT \
+  CORS_ALLOWED_ORIGINS \
+  SPRING_PROFILES_ACTIVE \
+  VECTOR_STORE_TYPE \
+  AZURE_SEARCH_ENABLED \
+  SPRING_AUTOCONFIGURE_EXCLUDE
+do
+  apply_preset_var "$preset_name"
+done
 
 # Auto-generate security secrets if still placeholders
 generate_secret SECURITY_JWT_SECRET "openssl rand -base64 64 | tr -d '\n'"
