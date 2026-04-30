@@ -246,8 +246,8 @@ Error: cannot access Docker images from the registry.
 DeepSQL images should be public on GitHub Container Registry and should not require `docker login`. Check network access to `ghcr.io` and confirm the image names in `.env` are still:
 
 ```bash
-DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-backend:latest
-DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-frontend:latest
+DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-self-host-backend:latest
+DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-self-host-frontend:latest
 ```
 
 ### Backend not healthy
