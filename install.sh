@@ -56,7 +56,7 @@ if [[ -z "$bundle_dir" || ! -f "$bundle_dir/scripts/install.sh" ]]; then
 fi
 
 echo "Installing DeepSQL self-host files into $INSTALL_DIR"
-cp -R "$bundle_dir/." "$INSTALL_DIR/"
+(cd "$bundle_dir" && tar -cf - .) | (cd "$INSTALL_DIR" && tar -xf -)
 chmod +x "$INSTALL_DIR/scripts/"*.sh
 
 "$INSTALL_DIR/scripts/install.sh"
