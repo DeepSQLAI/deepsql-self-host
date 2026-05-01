@@ -91,20 +91,6 @@ read_tty() {
   printf '%s' "$value"
 }
 
-read_tty_secret() {
-  local prompt="$1"
-  local value
-  if ! has_tty; then
-    echo "Error: interactive input is required for '$prompt', but no TTY is available." >&2
-    echo "Set the required value in the environment and rerun the installer." >&2
-    exit 1
-  fi
-  printf '%s' "$prompt" > /dev/tty
-  IFS= read -r -s value < /dev/tty
-  printf '\n' > /dev/tty
-  printf '%s' "$value"
-}
-
 ensure_local_image() {
   local image_ref="$1"
   if ! run_docker image inspect "$image_ref" >/dev/null 2>&1; then
@@ -268,6 +254,14 @@ generate_secret() {
   fi
 }
 
+validate_initial_admin_password() {
+  local password="$1"
+  if [[ "${#password}" -lt 12 ]]; then
+    echo "Error: DEEPSQL_INITIAL_ADMIN_PASSWORD must be at least 12 characters." >&2
+    exit 1
+  fi
+}
+
 apply_preset_value() {
   local name="$1"
   local value="$2"
@@ -287,20 +281,20 @@ prompt_initial_admin_credentials() {
   local password="${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}"
   if is_placeholder "$password"; then
     local confirm
-    password="$(read_tty_secret 'Initial admin password: ')"
-    confirm="$(read_tty_secret 'Confirm initial admin password: ')"
+    password="$(read_tty 'Initial admin password (visible, at least 12 characters): ')"
+
+    validate_initial_admin_password "$password"
+
+    confirm="$(read_tty 'Confirm initial admin password (visible): ')"
 
     if [[ "$password" != "$confirm" ]]; then
       echo "Error: admin passwords did not match." >&2
       exit 1
     fi
 
-    if [[ "${#password}" -lt 12 ]]; then
-      echo "Error: DEEPSQL_INITIAL_ADMIN_PASSWORD must be at least 12 characters." >&2
-      exit 1
-    fi
-
     set_env_value DEEPSQL_INITIAL_ADMIN_PASSWORD "$password"
+  else
+    validate_initial_admin_password "$password"
   fi
 
   set_env_value SECURITY_ADMIN_BOOTSTRAP_ENABLED "true"
@@ -309,7 +303,7 @@ prompt_initial_admin_credentials() {
 prompt_llm_credentials() {
   local key="${AZURE_OPENAI_KEY:-}"
   if is_placeholder "$key"; then
-    key="$(read_tty_secret 'Azure OpenAI key: ')"
+    key="$(read_tty 'Azure OpenAI key (visible input): ')"
     if [[ -z "$key" ]]; then
       echo "Error: AZURE_OPENAI_KEY is required." >&2
       exit 1
