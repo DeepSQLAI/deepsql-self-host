@@ -95,7 +95,7 @@ load_env_file() {
 }
 
 has_tty() {
-  [[ -r /dev/tty && -w /dev/tty ]]
+  [[ -r /dev/tty && -w /dev/tty ]] && { : < /dev/tty > /dev/tty; } 2>/dev/null
 }
 
 read_tty() {
@@ -106,8 +106,14 @@ read_tty() {
     echo "Set the required value in the environment and rerun the installer." >&2
     exit 1
   fi
-  printf '%s' "$prompt" > /dev/tty
-  IFS= read -r value < /dev/tty
+  if ! printf '%s' "$prompt" > /dev/tty; then
+    echo "Error: interactive input is required for '$prompt', but /dev/tty is not available." >&2
+    exit 1
+  fi
+  if ! IFS= read -r value < /dev/tty; then
+    echo "Error: failed to read interactive input for '$prompt'." >&2
+    exit 1
+  fi
   printf '%s' "$value"
 }
 
