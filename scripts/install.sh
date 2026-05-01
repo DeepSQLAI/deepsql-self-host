@@ -74,6 +74,26 @@ require_env_value() {
   fi
 }
 
+load_env_file() {
+  local line name value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+
+    if [[ "$line" == export\ * ]]; then
+      line="${line#export }"
+    fi
+
+    [[ "$line" == *=* ]] || continue
+    name="${line%%=*}"
+    value="${line#*=}"
+
+    if [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      export "$name=$value"
+    fi
+  done < "$ENV_FILE"
+}
+
 has_tty() {
   [[ -r /dev/tty && -w /dev/tty ]]
 }
@@ -362,6 +382,15 @@ ensure_scheduler_table() {
   echo "Ensured db-scheduler table exists in the vault database."
 }
 
+sync_postgres_password() {
+  echo "Syncing Postgres credentials with installer configuration..."
+  compose exec -T -e DEEPSQL_DB_PASSWORD="$DB_PASSWORD" postgres sh -lc '
+    psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v db_password="$DEEPSQL_DB_PASSWORD" <<SQL >/dev/null
+ALTER USER postgres WITH PASSWORD :'\''db_password'\'';
+SQL
+  '
+}
+
 compose() {
   run_docker compose \
     --project-name "$PROJECT_NAME" \
@@ -430,10 +459,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "Created $ENV_FILE from .env.example."
 fi
 
-# shellcheck disable=SC1090
-set -a
-source "$ENV_FILE"
-set +a
+load_env_file
 
 apply_preset_value AZURE_OPENAI_KEY "$PRESET_AZURE_OPENAI_KEY"
 apply_preset_value AZURE_OPENAI_ENDPOINT "$PRESET_AZURE_OPENAI_ENDPOINT"
@@ -510,6 +536,8 @@ fi
 check_registry_access
 echo "Starting DeepSQL self-hosted stack with project '$PROJECT_NAME'..."
 pull_application_images
+compose up -d postgres valkey
+sync_postgres_password
 compose up -d
 
 ensure_scheduler_table
