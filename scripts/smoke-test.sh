@@ -34,10 +34,16 @@ load_env_file
 
 : "${DEEPSQL_BACKEND_PORT:=8080}"
 : "${DB_PASSWORD:=postgres}"
+: "${DEEPSQL_INITIAL_ADMIN_EMAIL:=}"
 : "${DEEPSQL_INITIAL_ADMIN_PASSWORD:=}"
-: "${DEEPSQL_SMOKE_USERNAME:=admin}"
+: "${DEEPSQL_SMOKE_EMAIL:=${DEEPSQL_INITIAL_ADMIN_EMAIL}}"
 : "${DEEPSQL_SMOKE_PASSWORD:=${DEEPSQL_INITIAL_ADMIN_PASSWORD}}"
 : "${DEEPSQL_SMOKE_CONNECTION_NAME:=Self-Host Vault Postgres Smoke $(date +%s)}"
+
+if [[ -z "$DEEPSQL_SMOKE_EMAIL" ]]; then
+  echo "Error: set DEEPSQL_INITIAL_ADMIN_EMAIL or DEEPSQL_SMOKE_EMAIL in the environment." >&2
+  exit 1
+fi
 
 if [[ -z "$DEEPSQL_SMOKE_PASSWORD" ]]; then
   echo "Error: set DEEPSQL_INITIAL_ADMIN_PASSWORD or DEEPSQL_SMOKE_PASSWORD in the environment." >&2
@@ -45,10 +51,12 @@ if [[ -z "$DEEPSQL_SMOKE_PASSWORD" ]]; then
 fi
 
 base="http://localhost:${DEEPSQL_BACKEND_PORT}/api"
-login_json="$(curl -fsS -H 'Content-Type: application/json' -X POST "$base/auth/login" -d "{\"username\":\"${DEEPSQL_SMOKE_USERNAME}\",\"password\":\"${DEEPSQL_SMOKE_PASSWORD}\"}")"
-token="$(printf '%s' "$login_json" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+cookie_jar="$(mktemp)"
+trap 'rm -f "$cookie_jar"' EXIT
 
-if [[ -z "$token" ]]; then
+login_json="$(curl -fsS -c "$cookie_jar" -H 'Content-Type: application/json' -X POST "$base/auth/login" -d "{\"email\":\"${DEEPSQL_SMOKE_EMAIL}\",\"password\":\"${DEEPSQL_SMOKE_PASSWORD}\"}")"
+
+if [[ "$login_json" != *'"username":"admin"'* ]]; then
   echo "Error: login failed during smoke test." >&2
   echo "$login_json" >&2
   exit 1
@@ -71,7 +79,7 @@ payload=$(cat <<JSON
 JSON
 )
 
-save_json="$(curl -fsS -H 'Content-Type: application/json' -H "Authorization: Bearer ${token}" -X POST "$base/connections" -d "$payload")"
+save_json="$(curl -fsS -b "$cookie_jar" -H 'Content-Type: application/json' -X POST "$base/connections" -d "$payload")"
 connection_id="$(printf '%s' "$save_json" | sed -n 's/.*"connectionId":"\([^"]*\)".*/\1/p')"
 
 if [[ -z "$connection_id" ]]; then
@@ -80,13 +88,13 @@ if [[ -z "$connection_id" ]]; then
   exit 1
 fi
 
-connections_json="$(curl -fsS -H "Authorization: Bearer ${token}" "$base/connections")"
+connections_json="$(curl -fsS -b "$cookie_jar" "$base/connections")"
 if [[ "$connections_json" != *"${DEEPSQL_SMOKE_CONNECTION_NAME}"* ]]; then
   echo "Error: connection list does not contain the smoke-test connection." >&2
   exit 1
 fi
 
-schema_json="$(curl -fsS -H "Authorization: Bearer ${token}" "$base/connections/${connection_id}/schema")"
+schema_json="$(curl -fsS -b "$cookie_jar" "$base/connections/${connection_id}/schema")"
 if [[ "$schema_json" != *'"success":true'* ]]; then
   echo "Error: schema introspection failed for smoke-test connection." >&2
   echo "$schema_json" >&2
