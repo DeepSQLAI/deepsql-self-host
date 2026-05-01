@@ -591,6 +591,12 @@ echo "DeepSQL self-hosted stack is ready."
 echo "Frontend: http://localhost:${DEEPSQL_FRONTEND_PORT}"
 echo "Backend:  http://localhost:${DEEPSQL_BACKEND_PORT}/api"
 echo "Project:  $PROJECT_NAME"
+if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" ]]; then
+  echo "Admin login email: ${DEEPSQL_INITIAL_ADMIN_EMAIL}"
+fi
+if [[ -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
+  echo "Admin login password: ${DEEPSQL_INITIAL_ADMIN_PASSWORD}"
+fi
 echo "Backend image:  ${DEEPSQL_BACKEND_IMAGE}"
 echo "Frontend image: ${DEEPSQL_FRONTEND_IMAGE}"
 echo
