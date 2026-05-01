@@ -32,7 +32,7 @@ load_env_file() {
 
 load_env_file
 
-: "${DEEPSQL_BACKEND_PORT:=8080}"
+: "${DEEPSQL_BACKEND_PORT:=9085}"
 : "${DB_PASSWORD:=postgres}"
 : "${DEEPSQL_INITIAL_ADMIN_EMAIL:=}"
 : "${DEEPSQL_INITIAL_ADMIN_PASSWORD:=}"

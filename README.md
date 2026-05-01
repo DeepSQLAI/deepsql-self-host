@@ -54,7 +54,7 @@ The installer handles the rest:
 Open DeepSQL:
 
 ```
-http://localhost:3000
+http://localhost:3035
 ```
 
 Log in with username `admin` and the password you entered during install.
@@ -87,16 +87,16 @@ After logging in, connect DeepSQL to the databases you want to monitor:
 
 | Service | Default Port | Description |
 |---|---|---|
-| Frontend | 3000 | React UI (nginx) |
-| Backend | 8080 | Spring Boot API |
+| Frontend | 3035 | React UI (nginx) |
+| Backend | 9085 | Spring Boot API |
 | PostgreSQL | 5432 | Internal vault database with pgvector |
 | Valkey | 6379 | Cache (Redis-compatible) |
 
 Override any port in `.env`:
 
 ```bash
-DEEPSQL_FRONTEND_PORT=8090
-DEEPSQL_BACKEND_PORT=8181
+DEEPSQL_FRONTEND_PORT=4040
+DEEPSQL_BACKEND_PORT=9185
 DEEPSQL_POSTGRES_PORT=5433
 DEEPSQL_VALKEY_PORT=6380
 ```
@@ -184,7 +184,7 @@ Database connection credentials are encrypted at rest using AES-GCM with the `EN
 ### Network Security
 
 - The backend API requires JWT authentication for all endpoints.
-- CORS is restricted to the origins in `CORS_ALLOWED_ORIGINS` (defaults to `http://localhost:3000`).
+- CORS is restricted to the origins in `CORS_ALLOWED_ORIGINS` (defaults to `http://localhost:3035`).
 - If exposing DeepSQL beyond localhost, place it behind a reverse proxy with TLS.
 
 ---
@@ -273,8 +273,8 @@ Common causes:
 If a port is already in use, override it in `.env`:
 
 ```bash
-DEEPSQL_FRONTEND_PORT=8090
-DEEPSQL_BACKEND_PORT=8181
+DEEPSQL_FRONTEND_PORT=4040
+DEEPSQL_BACKEND_PORT=9185
 ```
 
 Then restart: `./scripts/install.sh`.

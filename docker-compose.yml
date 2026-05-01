@@ -73,7 +73,7 @@ services:
       spring.data.redis.port: "6379"
 
       # CORS — allow the frontend service (and optional custom domain)
-      cors.allowed.origins: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      cors.allowed.origins: ${CORS_ALLOWED_ORIGINS:-http://localhost:3035}
 
       # Self-host should default to the hardened production profile
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
@@ -94,7 +94,7 @@ services:
       AZURE_SEARCH_ENABLED: "false"
       SPRING_AUTOCONFIGURE_EXCLUDE: ${SPRING_AUTOCONFIGURE_EXCLUDE:-org.springframework.ai.vectorstore.azure.autoconfigure.AzureVectorStoreAutoConfiguration}
     ports:
-      - "${DEEPSQL_BACKEND_PORT:-8080}:8080"
+      - "${DEEPSQL_BACKEND_PORT:-9085}:8080"
     volumes:
       - dba-agent-logs:/app/logs
     healthcheck:
@@ -112,7 +112,7 @@ services:
       backend:
         condition: service_healthy
     ports:
-      - "${DEEPSQL_FRONTEND_PORT:-3000}:80"
+      - "${DEEPSQL_FRONTEND_PORT:-3035}:80"
 
 volumes:
   dba-agent-postgres:

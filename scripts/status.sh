@@ -39,8 +39,8 @@ if [[ -f "$ENV_FILE" ]]; then
   load_env_file
 fi
 
-: "${DEEPSQL_FRONTEND_PORT:=3000}"
-: "${DEEPSQL_BACKEND_PORT:=8080}"
+: "${DEEPSQL_FRONTEND_PORT:=3035}"
+: "${DEEPSQL_BACKEND_PORT:=9085}"
 
 echo "Compose services:"
 compose ps
