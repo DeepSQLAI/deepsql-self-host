@@ -419,6 +419,13 @@ ensure_scheduler_table() {
   echo "Ensured db-scheduler table exists in the vault database."
 }
 
+ensure_postgres_extensions() {
+  compose exec -T postgres psql -U postgres -d dba_agent -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+SQL
+  echo "Ensured pg_stat_statements extension exists in the vault database."
+}
+
 sync_postgres_password() {
   echo "Syncing Postgres credentials with installer configuration..."
   compose exec -T -e DEEPSQL_DB_PASSWORD="$DB_PASSWORD" postgres sh -lc '
@@ -579,6 +586,7 @@ wait_for_compose_service_healthy valkey "Valkey"
 sync_postgres_password
 compose up -d
 
+ensure_postgres_extensions
 ensure_scheduler_table
 wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
 wait_for_http "http://localhost:${DEEPSQL_FRONTEND_PORT}" "Frontend"

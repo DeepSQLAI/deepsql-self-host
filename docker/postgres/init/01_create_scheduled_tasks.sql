@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     task_name TEXT NOT NULL,
     task_instance TEXT NOT NULL,
