@@ -377,6 +377,37 @@ wait_for_http() {
   return 1
 }
 
+wait_for_compose_service_healthy() {
+  local service="$1"
+  local label="$2"
+  local retries="${3:-90}"
+  local delay="${4:-2}"
+  local container state
+
+  for ((i=1; i<=retries; i++)); do
+    container="$(compose ps -q "$service" 2>/dev/null || true)"
+    if [[ -n "$container" ]]; then
+      state="$(run_docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || true)"
+      case "$state" in
+        healthy|running)
+          echo "$label is healthy."
+          return 0
+          ;;
+        exited|dead)
+          echo "Error: $label container exited before becoming healthy." >&2
+          compose logs --tail=80 "$service" >&2 || true
+          return 1
+          ;;
+      esac
+    fi
+    sleep "$delay"
+  done
+
+  echo "Error: timed out waiting for $label to become healthy." >&2
+  compose logs --tail=80 "$service" >&2 || true
+  return 1
+}
+
 ensure_scheduler_table() {
   local sql_file="$ROOT_DIR/docker/postgres/init/01_create_scheduled_tasks.sql"
   if [[ ! -f "$sql_file" ]]; then
@@ -543,6 +574,8 @@ check_registry_access
 echo "Starting DeepSQL self-hosted stack with project '$PROJECT_NAME'..."
 pull_application_images
 compose up -d postgres valkey
+wait_for_compose_service_healthy postgres "Postgres"
+wait_for_compose_service_healthy valkey "Valkey"
 sync_postgres_password
 compose up -d
 
