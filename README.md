@@ -184,8 +184,28 @@ Database connection credentials are encrypted at rest using AES-GCM with the `EN
 ### Network Security
 
 - The backend API requires JWT authentication for all endpoints.
-- CORS is restricted to the origins in `CORS_ALLOWED_ORIGINS` (defaults to `http://localhost:3035`).
+- CORS is restricted to the origins in `CORS_ALLOWED_ORIGINS` (defaults to `http://localhost:*`).
 - If exposing DeepSQL beyond localhost, place it behind a reverse proxy with TLS.
+
+### Private Access via AWS SSM Port Forwarding
+
+If you want the UI reachable only from inside your AWS account — with no open ports or public load balancer — use SSM Session Manager to tunnel a local port directly to the instance.
+
+**Prerequisites**: the EC2 instance must have the SSM agent running and an IAM role with `AmazonSSMManagedInstanceCore`.
+
+```bash
+aws ssm start-session \
+  --region us-west-2 \
+  --target <instance-id> \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters portNumber=3035,localPortNumber=3035
+```
+
+Then open `http://localhost:3035` in your browser. The tunnel stays open as long as the terminal is running.
+
+- Use `portNumber=3035` (the DeepSQL frontend port) unless you changed `DEEPSQL_FRONTEND_PORT` in `.env`.
+- You can use any free `localPortNumber` — e.g. `8080` if 3035 is already in use locally.
+- No SSH keys, no bastion host, and no security group ingress rule required — traffic goes over the SSM control plane.
 
 ---
 
