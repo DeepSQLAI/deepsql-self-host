@@ -546,7 +546,7 @@ fi
 : "${DEEPSQL_POSTGRES_PORT:=5432}"
 : "${DEEPSQL_VALKEY_PORT:=6379}"
 : "${DEEPSQL_SKIP_IMAGE_PULL:=false}"
-: "${CORS_ALLOWED_ORIGINS:=http://localhost:${DEEPSQL_FRONTEND_PORT}}"
+: "${CORS_ALLOWED_ORIGINS:=http://localhost:*}"
 
 if [[ "${VECTOR_STORE_TYPE:-pgvector}" == "pgvector" && -z "${SPRING_AUTOCONFIGURE_EXCLUDE:-}" ]]; then
   SPRING_AUTOCONFIGURE_EXCLUDE="org.springframework.ai.vectorstore.azure.autoconfigure.AzureVectorStoreAutoConfiguration"
