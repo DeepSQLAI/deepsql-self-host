@@ -35,3 +35,9 @@ else
   compose down --remove-orphans
   echo "DeepSQL self-hosted stack stopped and removed. Data volumes were preserved."
 fi
+
+INSTALL_DIR="${DEEPSQL_INSTALL_DIR:-$HOME/.deepsql}"
+if [[ -d "$INSTALL_DIR" ]]; then
+  rm -rf "$INSTALL_DIR"
+  echo "Removed install directory: $INSTALL_DIR"
+fi
