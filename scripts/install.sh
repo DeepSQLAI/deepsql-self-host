@@ -1,6 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Bootstrap (curl | bash) ───────────────────────────────────────────────────
+# When piped from the internet BASH_SOURCE[0] is unset and docker-compose.yml
+# does not exist locally. Download the repo, install it, then re-exec.
+_bootstrap_if_remote() {
+  local src="${BASH_SOURCE[0]:-}"
+  local script_dir
+  script_dir="$(cd "$(dirname "${src:-.}")" && pwd 2>/dev/null || pwd)"
+  local root_dir
+  root_dir="$(cd "$script_dir/.." && pwd)"
+
+  [[ -f "$root_dir/docker-compose.yml" ]] && return 0
+
+  local repo_owner="${DEEPSQL_REPO_OWNER:-DeepSQLAI}"
+  local repo_name="${DEEPSQL_REPO_NAME:-deepsql-self-host}"
+  local ref="${DEEPSQL_SELF_HOST_REF:-main}"
+  local install_dir="${DEEPSQL_INSTALL_DIR:-$HOME/.deepsql/self-host}"
+  local archive_url="${DEEPSQL_SELF_HOST_ARCHIVE_URL:-https://github.com/${repo_owner}/${repo_name}/archive/refs/heads/${ref}.tar.gz}"
+
+  if [[ "$ref" == v* && -z "${DEEPSQL_SELF_HOST_ARCHIVE_URL:-}" ]]; then
+    archive_url="https://github.com/${repo_owner}/${repo_name}/archive/refs/tags/${ref}.tar.gz"
+  fi
+
+  local tmp_dir
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+
+  echo "Downloading DeepSQL self-host package from $archive_url"
+  curl -fsSL "$archive_url" -o "$tmp_dir/archive.tar.gz"
+  mkdir -p "$tmp_dir/extract" "$install_dir"
+  tar -xzf "$tmp_dir/archive.tar.gz" -C "$tmp_dir/extract"
+
+  local bundle_dir
+  bundle_dir="$(find "$tmp_dir/extract" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  if [[ -z "$bundle_dir" || ! -f "$bundle_dir/scripts/install.sh" ]]; then
+    echo "Error: downloaded archive did not contain scripts/install.sh." >&2
+    exit 1
+  fi
+
+  echo "Installing DeepSQL self-host files into $install_dir"
+  (cd "$bundle_dir" && tar -cf - .) | (cd "$install_dir" && tar -xf -)
+  chmod +x "$install_dir/scripts/"*.sh
+  exec "$install_dir/scripts/install.sh"
+}
+_bootstrap_if_remote
+# ─────────────────────────────────────────────────────────────────────────────
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="${DEEPSQL_COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
