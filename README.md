@@ -26,6 +26,18 @@ Run the installer:
 curl -fsSL https://install.deepsql.ai/install.sh | bash
 ```
 
+To skip interactive prompts, export credentials before running:
+
+```bash
+export AZURE_OPENAI_KEY=<your-key>
+export AZURE_OPENAI_ENDPOINT=<your-endpoint>
+export DEEPSQL_INITIAL_ADMIN_EMAIL=admin@yourcompany.com
+export DEEPSQL_INITIAL_ADMIN_PASSWORD=<strong-password>
+curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+> **Note:** Use `export` — variables prefixed inline (e.g. `KEY=val curl … | bash`) are passed to `curl`, not to `bash`.
+
 If Docker is missing, the installer can bootstrap it before starting DeepSQL:
 
 - Linux: prompts, then runs Docker's official `get.docker.com` convenience installer.
