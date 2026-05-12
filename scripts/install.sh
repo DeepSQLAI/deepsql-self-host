@@ -593,23 +593,41 @@ wait_for_http "http://localhost:${DEEPSQL_FRONTEND_PORT}" "Frontend"
 
 bootstrap_admin
 
-echo
+BOLD="\033[1m"
+CYAN="\033[36m"
+GREEN="\033[32m"
+DIM="\033[2m"
+RESET="\033[0m"
 
-echo "DeepSQL self-hosted stack is ready."
-echo "Frontend: http://localhost:${DEEPSQL_FRONTEND_PORT}"
-echo "Backend:  http://localhost:${DEEPSQL_BACKEND_PORT}/api"
-echo "Project:  $PROJECT_NAME"
-if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" ]]; then
-  echo "Admin login email: ${DEEPSQL_INITIAL_ADMIN_EMAIL}"
+printf "\n"
+printf "${BOLD}${GREEN}╔══════════════════════════════════════════════════╗${RESET}\n"
+printf "${BOLD}${GREEN}║        DeepSQL self-hosted stack is ready        ║${RESET}\n"
+printf "${BOLD}${GREEN}╚══════════════════════════════════════════════════╝${RESET}\n"
+printf "\n"
+printf "${BOLD}  Access${RESET}\n"
+printf "  Frontend  ${CYAN}http://localhost:${DEEPSQL_FRONTEND_PORT}${RESET}\n"
+printf "  Backend   ${CYAN}http://localhost:${DEEPSQL_BACKEND_PORT}/api${RESET}\n"
+printf "\n"
+if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" || -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
+  printf "${BOLD}  Admin credentials${RESET}\n"
+  [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" ]]    && printf "  Email     ${CYAN}${DEEPSQL_INITIAL_ADMIN_EMAIL}${RESET}\n"
+  [[ -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]] && printf "  Password  ${CYAN}${DEEPSQL_INITIAL_ADMIN_PASSWORD}${RESET}\n"
+  printf "\n"
 fi
-if [[ -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
-  echo "Admin login password: ${DEEPSQL_INITIAL_ADMIN_PASSWORD}"
-fi
-echo "Backend image:  ${DEEPSQL_BACKEND_IMAGE}"
-echo "Frontend image: ${DEEPSQL_FRONTEND_IMAGE}"
-echo
-
-echo "Useful commands:"
-echo "  ./scripts/status.sh"
-echo "  ./scripts/smoke-test.sh"
-echo "  ./scripts/uninstall.sh"
+printf "${BOLD}  Images${RESET}\n"
+printf "  Backend   ${DIM}${DEEPSQL_BACKEND_IMAGE}${RESET}\n"
+printf "  Frontend  ${DIM}${DEEPSQL_FRONTEND_IMAGE}${RESET}\n"
+printf "\n"
+printf "${BOLD}  Private access via AWS SSM (no open ports required)${RESET}\n"
+printf "  ${DIM}Run on your local machine, then open the Frontend URL above:${RESET}\n"
+printf "\n"
+printf "  ${CYAN}aws ssm start-session \\\\${RESET}\n"
+printf "  ${CYAN}  --region <region> \\\\${RESET}\n"
+printf "  ${CYAN}  --target <instance-id> \\\\${RESET}\n"
+printf "  ${CYAN}  --document-name AWS-StartPortForwardingSession \\\\${RESET}\n"
+printf "  ${CYAN}  --parameters portNumber=${DEEPSQL_FRONTEND_PORT},localPortNumber=${DEEPSQL_FRONTEND_PORT}${RESET}\n"
+printf "\n"
+printf "${BOLD}  Useful commands${RESET}\n"
+printf "  ${DIM}./scripts/status.sh${RESET}\n"
+printf "  ${DIM}./scripts/smoke-test.sh${RESET}\n"
+printf "  ${DIM}./scripts/uninstall.sh${RESET}\n"
