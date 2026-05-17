@@ -666,7 +666,7 @@ bootstrap_admin() {
     echo "Disabled admin bootstrap in $ENV_FILE."
     echo "Recreating backend with admin bootstrap disabled..."
     compose up -d backend
-    wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/actuator/health" "Backend"
+    wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
   else
     echo "Warning: admin bootstrap did not return a success message." >&2
     echo "$response" >&2
@@ -905,7 +905,7 @@ compose up -d
 
 ensure_postgres_extensions
 ensure_scheduler_table
-wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/actuator/health" "Backend"
+wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
 wait_for_http "http://localhost:${DEEPSQL_FRONTEND_PORT}" "Frontend"
 
 bootstrap_admin
