@@ -34,6 +34,20 @@ curl -fsSL https://install.deepsql.ai/uninstall.sh | bash
   Uninstall wipes the internal Postgres volume. Back up anything you care about first.
 </Aside>
 
+## Preserving data across reinstalls (advanced)
+
+If you're iterating on the install script and want to keep the existing Postgres + Valkey data across a reinstall of the **same version**, pass `--keep-data`:
+
+```bash
+./scripts/uninstall.sh --keep-data
+```
+
+<Aside type="caution" title="Don't mix this with a version change">
+  Each install auto-generates a fresh `ENCRYPTION_KEY` and `DB_PASSWORD`. If you `--keep-data` and then reinstall, the new install will get new secrets but the volume will still hold data encrypted with the old key — the backend will fail to decrypt stored credentials and login will fail.
+
+  **Only use `--keep-data` when reinstalling the same version with the same `.env` preserved.** For any version change or fresh install, use the default (which purges volumes).
+</Aside>
+
 ## Tearing down the CloudFormation stack
 
 If you deployed via CloudFormation, the cleanest way to remove everything is:
