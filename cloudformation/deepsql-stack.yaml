@@ -1,0 +1,317 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  DeepSQL self-hosted stack — provisions an EC2 instance (AL2023 ARM64, t4g.large,
+  no public IP, SSM-managed) inside the same VPC as your Aurora/RDS database, and
+  runs the DeepSQL installer automatically. Optionally creates an IAM user the
+  DeepSQL support team can use to start SSM sessions for troubleshooting.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Networking — must match your Aurora/RDS VPC
+        Parameters:
+          - VpcId
+          - SubnetId
+      - Label:
+          default: Instance configuration
+        Parameters:
+          - InstanceType
+          - VolumeSizeGiB
+          - InstanceName
+      - Label:
+          default: DeepSQL initial admin credentials
+        Parameters:
+          - AdminEmail
+          - AdminPassword
+      - Label:
+          default: DeepSQL team support access (optional)
+        Parameters:
+          - CreateSupportUser
+          - SupportUserName
+    ParameterLabels:
+      VpcId:                { default: "VPC ID (same as Aurora/RDS)" }
+      SubnetId:             { default: "Private subnet ID (must reach Aurora/RDS + have NAT egress)" }
+      InstanceType:         { default: "EC2 instance type" }
+      VolumeSizeGiB:        { default: "Root EBS volume size (GiB)" }
+      InstanceName:         { default: "Instance Name tag" }
+      AdminEmail:           { default: "Initial admin email" }
+      AdminPassword:        { default: "Initial admin password (12+ chars)" }
+      CreateSupportUser:    { default: "Create DeepSQL support IAM user?" }
+      SupportUserName:      { default: "Support IAM user name" }
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: >
+      VPC where the DeepSQL instance will be launched. Must be the SAME VPC as the
+      Aurora/RDS cluster DeepSQL will manage, so the instance can reach the database
+      over private networking.
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      Private subnet in the chosen VPC. The subnet must (1) be able to reach the
+      Aurora/RDS endpoint (same VPC + DB security group allows inbound from this
+      instance's SG), and (2) have outbound internet via NAT Gateway — the installer
+      pulls Docker images, npm packages, and the DeepSQL bundle from the internet.
+
+  InstanceType:
+    Type: String
+    Default: t4g.large
+    AllowedValues: [t4g.medium, t4g.large, t4g.xlarge, t4g.2xlarge, m7g.large, m7g.xlarge, c7g.large, c7g.xlarge]
+    Description: ARM64 (Graviton) instance type. t4g.large is the recommended default.
+
+  VolumeSizeGiB:
+    Type: Number
+    Default: 50
+    MinValue: 30
+    MaxValue: 1000
+    Description: Root EBS volume size in GiB (gp3, encrypted).
+
+  InstanceName:
+    Type: String
+    Default: deepsql-selfhost
+    Description: Value for the EC2 Name tag.
+
+  AdminEmail:
+    Type: String
+    Default: admin@yourcompany.com
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+    Description: Initial admin login email for the DeepSQL UI.
+
+  AdminPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    MaxLength: 128
+    Description: Initial admin login password (minimum 12 characters).
+
+  CreateSupportUser:
+    Type: String
+    Default: "Yes"
+    AllowedValues: ["Yes", "No"]
+    Description: >
+      If "Yes", creates an IAM user the DeepSQL support team can use to start SSM
+      sessions on this instance. Access key is stored in Secrets Manager; share the
+      secret ARN with DeepSQL support (instead of emailing access keys around).
+
+  SupportUserName:
+    Type: String
+    Default: deepsql-support
+    Description: IAM user name for DeepSQL support access.
+
+Conditions:
+  WantSupportUser: !Equals [!Ref CreateSupportUser, "Yes"]
+
+Resources:
+
+  # Security group — outbound only. SSM Session Manager works via the SSM agent
+  # dialing AWS on 443 outbound, so no inbound rules are needed.
+  # NOTE: also grant inbound from this SG on your Aurora/RDS security group so
+  # the DeepSQL backend can reach the database (e.g. tcp/5432 or tcp/3306).
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DeepSQL self-host — egress only, SSM-managed.
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All egress (SSM, Docker pulls, npm, GitHub, Aurora/RDS).
+      Tags:
+        - Key: Name
+          Value: !Sub "${InstanceName}-sg"
+
+  # Instance role: SSM management only.
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${InstanceName}-instance-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub "${InstanceName}-instance-role"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${InstanceName}-instance-profile"
+      Roles:
+        - !Ref InstanceRole
+
+  Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      # Latest AL2023 ARM64 AMI, resolved at stack create/update time.
+      # The "kernel-default" alias tracks whatever AL2023 currently ships
+      # (6.1 → 6.12 → 6.18 → ...) — auto-rolls without template edits.
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}"
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref VolumeSizeGiB
+            Encrypted: true
+            DeleteOnTermination: true
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      Tags:
+        - Key: Name
+          Value: !Ref InstanceName
+        - Key: deepsql:managed
+          Value: "true"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          exec > /var/log/deepsql-install.log 2>&1
+          set -eux
+
+          # Wait for network + DNS before pulling installer.
+          for i in $(seq 1 60); do
+            if curl -fsSL -o /dev/null https://install.deepsql.ai/install.sh; then
+              break
+            fi
+            sleep 5
+          done
+
+          dnf -y update
+          dnf -y install curl tar nodejs npm
+
+          export DEEPSQL_INSTALL_DOCKER=true
+          export DEEPSQL_INITIAL_ADMIN_EMAIL='${AdminEmail}'
+          export DEEPSQL_INITIAL_ADMIN_PASSWORD='${AdminPassword}'
+
+          curl -fsSL https://install.deepsql.ai/install.sh | bash
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Optional: DeepSQL support IAM user
+  # Scoped to ssm:StartSession on instances tagged deepsql:managed=true,
+  # in this region only.
+  # ──────────────────────────────────────────────────────────────────────────
+  SupportUser:
+    Type: AWS::IAM::User
+    Condition: WantSupportUser
+    Properties:
+      UserName: !Ref SupportUserName
+      Tags:
+        - Key: Purpose
+          Value: deepsql-support
+
+  SupportUserPolicy:
+    Type: AWS::IAM::Policy
+    Condition: WantSupportUser
+    Properties:
+      PolicyName: deepsql-support-ssm
+      Users: [!Ref SupportUser]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DescribeInstancesForLookup
+            Effect: Allow
+            Action:
+              - ec2:DescribeInstances
+              - ssm:DescribeInstanceInformation
+              - ssm:DescribeSessions
+              - ssm:GetConnectionStatus
+            Resource: "*"
+
+          - Sid: StartSessionOnDeepSQLInstances
+            Effect: Allow
+            Action:
+              - ssm:StartSession
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+            Condition:
+              StringEquals:
+                "ssm:resourceTag/deepsql:managed": "true"
+
+          - Sid: StartSessionDocuments
+            Effect: Allow
+            Action:
+              - ssm:StartSession
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-StartSSHSession"
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-StartPortForwardingSession"
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::document/SSM-SessionManagerRunShell"
+
+          - Sid: ManageOwnSessions
+            Effect: Allow
+            Action:
+              - ssm:TerminateSession
+              - ssm:ResumeSession
+            Resource:
+              - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:session/${!aws:username}-*"
+
+  SupportAccessKey:
+    Type: AWS::IAM::AccessKey
+    Condition: WantSupportUser
+    Properties:
+      UserName: !Ref SupportUser
+      Status: Active
+
+  SupportCredentialsSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: WantSupportUser
+    Properties:
+      Name: !Sub "deepsql/support/${SupportUserName}"
+      Description: AWS access key for DeepSQL support SSM access. Share ARN with DeepSQL.
+      SecretString: !Sub |
+        {"AccessKeyId":"${SupportAccessKey}","SecretAccessKey":"${SupportAccessKey.SecretAccessKey}","Region":"${AWS::Region}","InstanceId":"${Instance}"}
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref Instance
+
+  PrivateIp:
+    Description: Private IP address of the DeepSQL instance
+    Value: !GetAtt Instance.PrivateIp
+
+  InstanceSecurityGroupId:
+    Description: >
+      Security group ID of the DeepSQL instance. Add this as an INGRESS source
+      on your Aurora/RDS security group (port 5432 for Postgres, 3306 for MySQL)
+      so DeepSQL can reach the database.
+    Value: !Ref InstanceSecurityGroup
+
+  SSMConnectCommand:
+    Description: Start an interactive shell on the instance via SSM
+    Value: !Sub "aws ssm start-session --region ${AWS::Region} --target ${Instance}"
+
+  SSMPortForwardCommand:
+    Description: Forward DeepSQL frontend (port 3035) to your local machine
+    Value: !Sub >-
+      aws ssm start-session --region ${AWS::Region} --target ${Instance}
+      --document-name AWS-StartPortForwardingSession
+      --parameters portNumber=3035,localPortNumber=3035
+
+  InstallLogPath:
+    Description: Path to installer log on the instance
+    Value: /var/log/deepsql-install.log
+
+  SupportSecretArn:
+    Condition: WantSupportUser
+    Description: >
+      Secrets Manager ARN holding the DeepSQL support user's AWS access key.
+      Share this ARN (and grant secretsmanager:GetSecretValue on it) with the
+      DeepSQL support team so they can SSM into this instance.
+    Value: !Ref SupportCredentialsSecret
+
+  SupportSecretFetchCommand:
+    Condition: WantSupportUser
+    Description: Command to retrieve the support credentials (run as yourself, then share output securely)
+    Value: !Sub "aws secretsmanager get-secret-value --region ${AWS::Region} --secret-id ${SupportCredentialsSecret} --query SecretString --output text"
