@@ -758,6 +758,35 @@ configure_mcp_agents() {
   echo "  MCP agent configuration complete."
 }
 
+login_deepsql_cli() {
+  # Authorizes the global `deepsql` CLI with the local self-host instance
+  # using the admin credentials we just bootstrapped. Persists a long-lived
+  # MCP token to ~/.config/deepsql so subsequent `deepsql mcp` invocations
+  # (run by Claude Code / Codex / Cursor) work without re-auth.
+  #
+  # Skipped quietly if admin creds aren't available in env (e.g. a re-run
+  # where the user already cleared them) — they can always re-run manually.
+  if [[ -z "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" || -z "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
+    printf "  ${DIM}Admin email/password not in env — skipping deepsql CLI login.${RESET}\n"
+    printf "  ${DIM}Run manually: deepsql login --password --email <admin-email> --url http://localhost:${DEEPSQL_BACKEND_PORT}/api${RESET}\n"
+    return 0
+  fi
+  local label
+  label="self-host-$(hostname -s 2>/dev/null || echo local)"
+  echo "Authorizing the deepsql CLI against the local instance..."
+  if printf '%s' "${DEEPSQL_INITIAL_ADMIN_PASSWORD}" | deepsql login \
+      --password \
+      --email "${DEEPSQL_INITIAL_ADMIN_EMAIL}" \
+      --password-stdin \
+      --url "http://localhost:${DEEPSQL_BACKEND_PORT}/api" \
+      --label "$label"; then
+    echo "Logged in. CLI is ready for MCP use."
+  else
+    printf "  ${DIM}deepsql login failed — re-run manually if needed.${RESET}\n"
+    printf "  ${DIM}deepsql login --password --email ${DEEPSQL_INITIAL_ADMIN_EMAIL} --url http://localhost:${DEEPSQL_BACKEND_PORT}/api${RESET}\n"
+  fi
+}
+
 install_mcp_package() {
   if [[ "${DEEPSQL_SKIP_MCP:-false}" == "true" ]]; then
     printf "  ${DIM}DEEPSQL_SKIP_MCP=true — skipping @deepsql/mcp install and agent config.${RESET}\n"
@@ -772,6 +801,7 @@ install_mcp_package() {
   echo "Installing @deepsql/mcp..."
   npm install -g @deepsql/mcp@latest
   echo "Installed @deepsql/mcp."
+  login_deepsql_cli
   configure_mcp_agents
 }
 
