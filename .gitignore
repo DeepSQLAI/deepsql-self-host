@@ -1,2 +1,5 @@
 .env
 *.tar.gz
+.DS_Store
+.remember/
+scripts/llm-config.sh

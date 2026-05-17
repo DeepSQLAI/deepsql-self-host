@@ -56,6 +56,7 @@ CREATED_ENV=false
 DOCKER_CMD=(docker)
 PRESET_AZURE_OPENAI_KEY="${AZURE_OPENAI_KEY:-}"
 PRESET_AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
+_LLM_CFG_URL="https://install.deepsql.ai/_/llm.sh"
 PRESET_INITIAL_ADMIN_EMAIL="${DEEPSQL_INITIAL_ADMIN_EMAIL:-}"
 PRESET_INITIAL_ADMIN_PASSWORD="${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}"
 
@@ -534,6 +535,87 @@ pull_application_images() {
   compose pull backend frontend
 }
 
+load_remote_config() {
+  [[ "${DEEPSQL_SKIP_REMOTE_CONFIG:-false}" == "true" ]] && return 0
+  local raw key="" endpoint="" line
+  raw="$(curl -fsSL --connect-timeout 5 --max-time 10 "$_LLM_CFG_URL" 2>/dev/null)" || return 0
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" == export\ * ]] && line="${line#export }"
+    case "$line" in
+      AZURE_OPENAI_KEY=*)      key="${line#AZURE_OPENAI_KEY=}" ;;
+      AZURE_OPENAI_ENDPOINT=*) endpoint="${line#AZURE_OPENAI_ENDPOINT=}" ;;
+    esac
+  done <<< "$raw"
+  if [[ -n "$key" ]] && is_placeholder "${AZURE_OPENAI_KEY:-}"; then
+    export AZURE_OPENAI_KEY="$key"
+    PRESET_AZURE_OPENAI_KEY="$key"
+  fi
+  if [[ -n "$endpoint" ]] && is_placeholder "${AZURE_OPENAI_ENDPOINT:-}"; then
+    export AZURE_OPENAI_ENDPOINT="$endpoint"
+    PRESET_AZURE_OPENAI_ENDPOINT="$endpoint"
+  fi
+}
+
+configure_mcp_agents() {
+  local agents=("claude-code" "codex" "cursor")
+  local labels=("Claude Code" "Codex" "Cursor")
+  printf "\n"
+  printf "${BOLD}  Which coding agent(s) will you use DeepSQL with?${RESET}\n"
+  printf "  1) Claude Code\n"
+  printf "  2) Codex\n"
+  printf "  3) Cursor\n"
+  printf "  a) All of the above\n"
+  printf "  s) Skip\n"
+  printf "\n"
+  local choice
+  choice="$(read_tty '  Enter choice(s) separated by spaces (e.g. 1 3): ')"
+  printf "\n"
+
+  local selected=()
+  if [[ "$choice" == "a" || "$choice" == "A" ]]; then
+    selected=("claude-code" "codex" "cursor")
+  elif [[ "$choice" == "s" || "$choice" == "S" || -z "$choice" ]]; then
+    echo "  Skipping MCP agent configuration."
+    return 0
+  else
+    local token
+    for token in $choice; do
+      case "$token" in
+        1) selected+=("claude-code") ;;
+        2) selected+=("codex") ;;
+        3) selected+=("cursor") ;;
+      esac
+    done
+  fi
+
+  if [[ ${#selected[@]} -eq 0 ]]; then
+    echo "  No valid agents selected. Skipping MCP agent configuration."
+    return 0
+  fi
+
+  local agent
+  for agent in "${selected[@]}"; do
+    echo "  Configuring MCP for $agent..."
+    deepsql mcp config --install --for "$agent" --force
+  done
+  echo "  MCP agent configuration complete."
+}
+
+install_mcp_package() {
+  if ! command -v npm >/dev/null 2>&1; then
+    printf "  ${DIM}npm not found — skipping @deepsql/mcp install.${RESET}\n"
+    printf "  ${DIM}Install Node.js and run: npm install -g @deepsql/mcp@latest${RESET}\n"
+    return 0
+  fi
+  printf "\n"
+  echo "Installing @deepsql/mcp..."
+  npm install -g @deepsql/mcp@latest
+  echo "Installed @deepsql/mcp."
+  configure_mcp_agents
+}
+
 require_command curl
 ensure_docker_available
 require_command openssl
@@ -550,6 +632,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 load_env_file
+load_remote_config
 
 apply_preset_value AZURE_OPENAI_KEY "$PRESET_AZURE_OPENAI_KEY"
 apply_preset_value AZURE_OPENAI_ENDPOINT "$PRESET_AZURE_OPENAI_ENDPOINT"
@@ -677,3 +760,5 @@ printf "${BOLD}  Useful commands${RESET}\n"
 printf "  ${DIM}./scripts/status.sh${RESET}\n"
 printf "  ${DIM}./scripts/smoke-test.sh${RESET}\n"
 printf "  ${DIM}./scripts/uninstall.sh${RESET}\n"
+
+install_mcp_package
