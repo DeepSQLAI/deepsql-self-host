@@ -666,7 +666,7 @@ bootstrap_admin() {
     echo "Disabled admin bootstrap in $ENV_FILE."
     echo "Recreating backend with admin bootstrap disabled..."
     compose up -d backend
-    wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
+    wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/actuator/health" "Backend"
   else
     echo "Warning: admin bootstrap did not return a success message." >&2
     echo "$response" >&2
@@ -768,7 +768,7 @@ login_deepsql_cli() {
   # where the user already cleared them) — they can always re-run manually.
   if [[ -z "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" || -z "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
     printf "  ${DIM}Admin email/password not in env — skipping deepsql CLI login.${RESET}\n"
-    printf "  ${DIM}Run manually: deepsql login --password --email <admin-email> --url http://localhost:${DEEPSQL_BACKEND_PORT}/api${RESET}\n"
+    printf "  ${DIM}Run manually: deepsql login --password --email <admin-email> --url http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
     return 0
   fi
   local label
@@ -778,12 +778,12 @@ login_deepsql_cli() {
       --password \
       --email "${DEEPSQL_INITIAL_ADMIN_EMAIL}" \
       --password-stdin \
-      --url "http://localhost:${DEEPSQL_BACKEND_PORT}/api" \
+      --url "http://localhost:${DEEPSQL_BACKEND_PORT}" \
       --label "$label"; then
     echo "Logged in. CLI is ready for MCP use."
   else
     printf "  ${DIM}deepsql login failed — re-run manually if needed.${RESET}\n"
-    printf "  ${DIM}deepsql login --password --email ${DEEPSQL_INITIAL_ADMIN_EMAIL} --url http://localhost:${DEEPSQL_BACKEND_PORT}/api${RESET}\n"
+    printf "  ${DIM}deepsql login --password --email ${DEEPSQL_INITIAL_ADMIN_EMAIL} --url http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
   fi
 }
 
@@ -905,7 +905,7 @@ compose up -d
 
 ensure_postgres_extensions
 ensure_scheduler_table
-wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
+wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/actuator/health" "Backend"
 wait_for_http "http://localhost:${DEEPSQL_FRONTEND_PORT}" "Frontend"
 
 bootstrap_admin
@@ -923,7 +923,7 @@ printf "${BOLD}${GREEN}╚══════════════════
 printf "\n"
 printf "${BOLD}  Access${RESET}\n"
 printf "  Frontend  ${CYAN}http://localhost:${DEEPSQL_FRONTEND_PORT}${RESET}\n"
-printf "  Backend   ${CYAN}http://localhost:${DEEPSQL_BACKEND_PORT}/api${RESET}\n"
+printf "  Backend   ${CYAN}http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
 printf "\n"
 if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" || -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
   printf "${BOLD}  Admin credentials${RESET}\n"
