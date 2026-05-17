@@ -17,6 +17,29 @@ Or fetch and pipe:
 curl -fsSL https://install.deepsql.ai/uninstall.sh | bash
 ```
 
+## Reinstall: just run uninstall, then install
+
+As of `v1.0.1`, this works correctly with no extra flags:
+
+```bash
+curl -fsSL https://install.deepsql.ai/uninstall.sh | bash
+curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+<Aside type="note" title="Why this is worth calling out">
+  Before `v1.0.1`, uninstall **preserved** Postgres + Valkey volumes by default. Reinstalling on top of those volumes failed with confusing credential errors — the new install generated a fresh `ENCRYPTION_KEY` but the volume still held data encrypted with the old key, so the backend couldn't decrypt stored credentials and login failed.
+
+  v1.0.1 flipped the default to **purge volumes**. A clean uninstall + install now produces a clean install. If you're on an older self-host install and hit the bug, the workaround is:
+
+  ```bash
+  docker volume rm \
+    deepsql-selfhost_dba-agent-postgres \
+    deepsql-selfhost_dba-agent-valkey \
+    deepsql-selfhost_dba-agent-logs 2>/dev/null
+  curl -fsSL https://install.deepsql.ai/install.sh | bash
+  ```
+</Aside>
+
 ## What it removes
 
 - All DeepSQL containers (`docker compose down`)

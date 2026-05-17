@@ -7,7 +7,7 @@ import { Aside, Steps } from '@astrojs/starlight/components';
 
 The CloudFormation template provisions everything needed to run DeepSQL on AWS:
 
-- `t4g.large` EC2 instance, AL2023 ARM64, encrypted gp3 root volume (50 GB default)
+- `t4g.large` EC2 instance, AL2023 ARM64, encrypted gp3 root volume (50 GB default). The installer has explicit AL2023 + arm64 support (Docker via `dnf install docker`, Compose v2 plugin from GitHub release, AL2023's `curl-minimal` handled correctly) — verified end-to-end on every release.
 - No public IP — access only via SSM Session Manager
 - IAM instance role with `AmazonSSMManagedInstanceCore`
 - Optional IAM user the DeepSQL support team can use to SSM in for troubleshooting

@@ -1,0 +1,83 @@
+---
+title: Upgrade
+description: Move an existing DeepSQL self-host install to a newer release.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## The short version
+
+For most patch releases (`v1.0.x` → `v1.0.y`), re-running the installer is enough:
+
+```bash
+curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+The installer pulls the latest released `install.sh`, which resolves the latest GitHub release tag and reinstalls from that source archive. Your existing `.env` is preserved, so all your secrets and configuration carry over.
+
+## What gets upgraded automatically
+
+| What | Upgraded? | Notes |
+| --- | --- | --- |
+| `install.sh` / `uninstall.sh` / `diagnose.sh` | ✅ | Pulled fresh from the new release |
+| `docker-compose.yml` | ✅ | Pulled fresh — new compose tweaks apply |
+| Backend / frontend Docker images | ⚠️ Only if `.env` image refs are updated | See below |
+| Your `.env` (secrets, admin creds, custom config) | ✅ Preserved | Existing values are NOT overwritten |
+| Postgres / Valkey data | ✅ Preserved | Volumes are untouched |
+
+## When Docker images need to bump
+
+Patch releases (`v1.0.x`) are usually script-only fixes — they ship against the same `:1.0.0` images. No image bump needed.
+
+Minor/major releases (`v1.1.0`, `v2.0.0`) typically include new images. Check the release notes. To bump:
+
+```bash
+# 1. Stop the stack but KEEP your data
+cd ~/.deepsql/self-host
+./scripts/uninstall.sh --keep-data
+
+# 2. Update image refs in .env to the new versioned tags
+#    e.g. ghcr.io/deepsqlai/deepsql-self-host-backend:1.1.0
+nano .env
+
+# 3. Re-run the installer — it'll pull the new images and restart
+curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+<Aside type="caution" title="`--keep-data` is the only time you should preserve volumes">
+  `--keep-data` works correctly during a same-version upgrade because the existing `ENCRYPTION_KEY` and `DB_PASSWORD` in your `.env` still match what's encrypted in the volume.
+
+  Do NOT pair `--keep-data` with a fresh `.env` (e.g. if you deleted it manually). That regenerates secrets and the backend won't be able to decrypt existing data. See [Uninstall](/install/uninstall/) for the gory details.
+</Aside>
+
+## Pinning to a specific version
+
+If you don't want "whatever the latest release is" and prefer to pin to a known-good version, set `DEEPSQL_SELF_HOST_REF` before running the installer:
+
+```bash
+DEEPSQL_SELF_HOST_REF=v1.0.4 curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+This bypasses the GitHub releases API lookup and downloads exactly that tag.
+
+## Upgrading a CloudFormation deploy
+
+The CloudFormation template's UserData calls `install.sh` only on first boot. To upgrade an existing CFN-deployed instance:
+
+```bash
+aws ssm start-session --region <region> --target <instance-id>
+# On the instance:
+cd ~/.deepsql/self-host
+./scripts/uninstall.sh --keep-data
+curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+The CFN stack itself doesn't need updating unless the template changes (it usually doesn't between patch releases).
+
+## Release notes
+
+Full per-version changelog is on GitHub: https://github.com/DeepSQLAI/deepsql-self-host/releases
+
+## What's coming
+
+A dedicated `./scripts/upgrade.sh` that handles the image-bump dance automatically is on the roadmap — it'll do "pull new images, run migrations, restart with zero downtime" in one command. Until then, the manual flow above is the supported path.

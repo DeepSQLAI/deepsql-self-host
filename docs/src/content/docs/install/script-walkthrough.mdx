@@ -13,33 +13,40 @@ curl -fsSL https://install.deepsql.ai/install.sh | bash
 
 It's the same script that runs inside the [CloudFormation deploy](/aws/cloudformation/) — there's no second installer.
 
-## The 12 phases, in order
+## The 14 phases, in order
 
 <Steps>
 
 1. **Bootstrap from the internet (if needed).**
 
-   When piped from `curl | bash`, the script has no local `docker-compose.yml`. It downloads the `deepsql-self-host` release archive from GitHub, extracts it to `~/.deepsql/self-host/`, and re-executes itself from there. If you ran the script from a local checkout, this step is skipped.
+   When piped from `curl | bash`, the script has no local `docker-compose.yml`. It resolves which version to install:
+
+   1. `DEEPSQL_SELF_HOST_REF` env var if set (explicit pin, e.g. `v1.0.0` or `main`)
+   2. Latest GitHub release tag via `api.github.com/repos/DeepSQLAI/deepsql-self-host/releases/latest`
+   3. `main` as a fallback if the API is unreachable or there are no releases
+
+   It then downloads that ref's repo archive, extracts to `~/.deepsql/self-host/`, and re-executes itself from there. If you ran the script from a local checkout, this step is skipped.
 
 2. **Capture preset env vars.**
 
    Reads `AZURE_OPENAI_KEY`, `AZURE_OPENAI_ENDPOINT`, `DEEPSQL_INITIAL_ADMIN_EMAIL`, `DEEPSQL_INITIAL_ADMIN_PASSWORD`, image overrides, and port overrides from your environment so they win over `.env` defaults.
 
-3. **Verify required commands.**
+3. **Auto-install prerequisites.**
 
-   Checks that `curl` and `openssl` are present. Exits with a clear error if anything is missing.
+   Detects your host's package manager (`dnf`, `yum`, `apt-get`, `apk`, `pacman`, `zypper`, or `brew` on macOS) and installs any of `curl`, `tar`, `openssl` that are missing. Architecture-agnostic — the same logic works on x86_64 and arm64. You may be prompted for your sudo password on Linux.
 
 4. **Ensure Docker is available.**
 
-   - If `docker` isn't installed, the script offers to install it:
-     - **Linux**: downloads `get.docker.com` and runs it (as root or via `sudo`).
-     - **macOS**: runs `brew install --cask docker` and launches Docker Desktop.
-   - Waits up to ~3 minutes for the Docker daemon to come up.
-   - On Linux, falls back to `sudo docker` if the current user can't reach the daemon directly.
+   If `docker` isn't already installed:
+   - **Amazon Linux 2023**: uses `dnf install docker` (the official `get.docker.com` script doesn't support AL2023). Also installs the Compose v2 plugin manually from the GitHub release.
+   - **Other Linux**: downloads and runs `get.docker.com` (Ubuntu, Debian, Fedora, RHEL, etc.). Verifies Compose v2 plugin is present; downloads it from GitHub if missing.
+   - **macOS**: runs `brew install --cask docker` and launches Docker Desktop.
+
+   Then waits up to ~3 minutes for the Docker daemon to come up. On Linux, falls back to `sudo docker` if the current user can't reach the daemon directly.
 
 5. **Create `.env` from the template** (if it doesn't already exist).
 
-   Copies `.env.example` → `.env`. On subsequent runs, your existing `.env` is preserved.
+   Copies `.env.example` → `.env`. On subsequent runs, your existing `.env` is preserved. Image refs in the template are pinned to a specific version tag (e.g. `:1.0.0`).
 
 6. **Load `.env` into the current shell.**
 
@@ -77,23 +84,21 @@ It's the same script that runs inside the [CloudFormation deploy](/aws/cloudform
 
     Calls the backend's internal admin-reset endpoint (gated by `ADMIN_BOOTSTRAP_SECRET`) to create/reset the admin login. Then disables the bootstrap flag in `.env` and restarts the backend so the secret can no longer be used.
 
-</Steps>
+13. **Install the MCP package and auto-login the CLI.**
 
-## After the stack is up
+    Runs `npm install -g @deepsql/mcp@latest`, then authorizes the CLI against the local instance using your admin credentials via `deepsql login --password --password-stdin --url http://localhost:<backend-port>`. The long-lived MCP token is persisted to `~/.config/deepsql/auth.json`.
 
-13. **Install the MCP package.**
-
-    Runs `npm install -g @deepsql/mcp@latest`. Skipped with a warning if `npm` is missing.
+    Skipped if `DEEPSQL_SKIP_MCP=true` or `npm` isn't installed. See [MCP & coding agents](/install/mcp-agents/) for details.
 
 14. **Configure MCP for your coding agents.**
 
-    Prompts you to pick from Claude Code, Codex, Cursor (or all, or skip). For each selection it runs:
+    Prompts you to pick from Claude Code, Codex, Cursor (or all, or skip). Auto-skipped if there's no TTY (CloudFormation UserData, CI). For each selection:
 
     ```bash
     deepsql mcp config --install --for <agent> --force
     ```
 
-    See [MCP & coding agents](/install/mcp-agents/) for details on what each command writes.
+</Steps>
 
 ## Idempotency
 
@@ -103,8 +108,9 @@ It's the same script that runs inside the [CloudFormation deploy](/aws/cloudform
 - Auto-generated secrets are only generated once (subsequent runs see real values and skip)
 - Admin bootstrap is disabled after first successful run, so re-runs won't reset the admin password
 - `docker compose up -d` only restarts changed services
+- The deepsql CLI login is re-attempted; it overwrites any existing token
 
-If you want to start fresh, run `./scripts/uninstall.sh` first.
+If you want to start fresh, run `./scripts/uninstall.sh` first (purges volumes by default — see [Uninstall](/install/uninstall/)).
 
 ## Exit codes
 
@@ -118,3 +124,5 @@ The script uses `set -euo pipefail`, so it fails fast on the first error. Look a
 ## Logs
 
 When running via CloudFormation UserData, the full installer output is written to `/var/log/deepsql-install.log` on the instance. When running interactively, output goes to your terminal.
+
+When something goes wrong, [collect a diagnostic bundle](/ops/diagnose/) and attach it to your support ticket.

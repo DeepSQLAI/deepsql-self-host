@@ -11,6 +11,30 @@ After the stack is healthy, the installer installs the DeepSQL MCP server global
 npm install -g @deepsql/mcp@latest
 ```
 
+## Auto-login
+
+As of `v1.0.2`, the installer then authorizes the CLI against the local instance using your admin email and password — no browser callback, no device code:
+
+```bash
+echo "$DEEPSQL_INITIAL_ADMIN_PASSWORD" | deepsql login \
+  --password \
+  --email "$DEEPSQL_INITIAL_ADMIN_EMAIL" \
+  --password-stdin \
+  --url "http://localhost:9085"
+```
+
+A long-lived MCP token is persisted to `~/.config/deepsql/auth.json`. Subsequent `deepsql mcp` invocations (which your coding agents run under the hood) work without re-auth.
+
+<Aside type="note" title="When auto-login is skipped">
+  Login is skipped if the admin credentials aren't in your environment when you re-run the installer (e.g. a re-install where you've cleared them). In that case, install prints the manual command. Run it yourself with the credentials you remember:
+
+  ```bash
+  deepsql login --password --email <admin-email> --url http://localhost:9085
+  ```
+</Aside>
+
+## Configure the agents
+
 Then it prompts you to pick which coding agents to wire up:
 
 ```

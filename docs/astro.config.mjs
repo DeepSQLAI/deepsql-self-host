@@ -37,6 +37,7 @@ export default defineConfig({
             { label: 'What install.sh does', slug: 'install/script-walkthrough' },
             { label: 'Environment variables', slug: 'install/env-vars' },
             { label: 'MCP & coding agents', slug: 'install/mcp-agents' },
+            { label: 'Upgrade', slug: 'install/upgrade' },
             { label: 'Uninstall', slug: 'install/uninstall' },
           ],
         },
@@ -53,8 +54,14 @@ export default defineConfig({
           items: [
             { label: 'Status & smoke test', slug: 'ops/status' },
             { label: 'Logs', slug: 'ops/logs' },
+            { label: 'Diagnostic bundle', slug: 'ops/diagnose' },
             { label: 'Troubleshooting', slug: 'ops/troubleshooting' },
           ],
+        },
+        {
+          label: 'Release notes',
+          link: 'https://github.com/DeepSQLAI/deepsql-self-host/releases',
+          attrs: { target: '_blank', rel: 'noopener' },
         },
       ],
     }),
