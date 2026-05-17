@@ -3,13 +3,22 @@ set -euo pipefail
 
 REPO_OWNER="${DEEPSQL_REPO_OWNER:-DeepSQLAI}"
 REPO_NAME="${DEEPSQL_REPO_NAME:-deepsql-self-host}"
-REF="${DEEPSQL_SELF_HOST_REF:-main}"
+# Default: explicit env override -> latest GitHub release tag -> main fallback.
+REF="${DEEPSQL_SELF_HOST_REF:-}"
+if [[ -z "$REF" ]]; then
+  REF="$(curl -fsSL --connect-timeout 5 --max-time 10 \
+    "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" 2>/dev/null \
+    | grep -oE '"tag_name":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)"
+  [[ -z "$REF" ]] && REF="main"
+fi
 INSTALL_DIR="${DEEPSQL_INSTALL_DIR:-$HOME/.deepsql/self-host}"
 ARCHIVE_URL="${DEEPSQL_SELF_HOST_ARCHIVE_URL:-https://github.com/${REPO_OWNER}/${REPO_NAME}/archive/refs/heads/${REF}.tar.gz}"
 
 if [[ "$REF" == v* && -z "${DEEPSQL_SELF_HOST_ARCHIVE_URL:-}" ]]; then
   ARCHIVE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/archive/refs/tags/${REF}.tar.gz"
 fi
+
+echo "Installing DeepSQL self-host ref: $REF"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then

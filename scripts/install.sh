@@ -25,13 +25,25 @@ _bootstrap_if_remote() {
 
   local repo_owner="${DEEPSQL_REPO_OWNER:-DeepSQLAI}"
   local repo_name="${DEEPSQL_REPO_NAME:-deepsql-self-host}"
-  local ref="${DEEPSQL_SELF_HOST_REF:-main}"
+  # Default ref resolution order:
+  #   1. DEEPSQL_SELF_HOST_REF env override (explicit pin: e.g. v1.0.0 or main)
+  #   2. Latest GitHub release tag (so customers default to a stable version)
+  #   3. main (fallback if the GitHub API is unreachable or there are no releases yet)
+  local ref="${DEEPSQL_SELF_HOST_REF:-}"
+  if [[ -z "$ref" ]]; then
+    ref="$(curl -fsSL --connect-timeout 5 --max-time 10 \
+      "https://api.github.com/repos/${repo_owner}/${repo_name}/releases/latest" 2>/dev/null \
+      | grep -oE '"tag_name":[[:space:]]*"[^"]+"' | head -1 | cut -d'"' -f4)"
+    [[ -z "$ref" ]] && ref="main"
+  fi
   local install_dir="${DEEPSQL_INSTALL_DIR:-$HOME/.deepsql/self-host}"
   local archive_url="${DEEPSQL_SELF_HOST_ARCHIVE_URL:-https://github.com/${repo_owner}/${repo_name}/archive/refs/heads/${ref}.tar.gz}"
 
   if [[ "$ref" == v* && -z "${DEEPSQL_SELF_HOST_ARCHIVE_URL:-}" ]]; then
     archive_url="https://github.com/${repo_owner}/${repo_name}/archive/refs/tags/${ref}.tar.gz"
   fi
+
+  echo "Installing DeepSQL self-host ref: $ref"
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"
