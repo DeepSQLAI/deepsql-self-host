@@ -1,0 +1,85 @@
+---
+title: Prerequisites
+description: System requirements, commands, and network access needed before running install.sh.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`install.sh` is designed to do as much setup as it can for you — including installing Docker — but a few things must be in place first.
+
+## Operating system
+
+| OS | Architectures | Notes |
+| --- | --- | --- |
+| Linux | x86_64, arm64 | Tested on Amazon Linux 2023, Ubuntu 22.04+, Debian 12 |
+| macOS | arm64 (Apple Silicon), x86_64 | Docker Desktop required |
+
+The CloudFormation template uses Amazon Linux 2023 on `t4g.large` (arm64).
+
+## Commands the script requires
+
+These must be present on `PATH` before running:
+
+| Command | Purpose | Auto-installed? |
+| --- | --- | --- |
+| `bash` | Shell | No (must be installed) |
+| `curl` | Download installer + bundle | No |
+| `tar` | Extract release archive | No |
+| `openssl` | Generate random secrets | No |
+| `docker` | Run the stack | Yes — script offers to install |
+| `docker compose` | Orchestrate containers | Yes — comes with Docker |
+| `npm` (Node 18+) | Install `@deepsql/mcp` | No (skipped if missing) |
+
+If `npm` is missing, the MCP step is skipped with a clear message — the core stack still installs.
+
+## Hardware
+
+| Resource | Minimum | Recommended |
+| --- | --- | --- |
+| vCPUs | 2 | 2+ (t4g.large = 2 vCPU, 8 GB) |
+| RAM | 4 GB | 8 GB |
+| Disk (root) | 20 GB | 50 GB (CloudFormation default) |
+| Disk type | any | gp3 SSD or equivalent |
+
+The Postgres data volume lives inside the Docker volume mount on the root disk by default.
+
+## Network egress
+
+The installer needs outbound HTTPS (port 443) to:
+
+| Host | Why |
+| --- | --- |
+| `install.deepsql.ai` | Download installer + bundled LLM config |
+| `github.com`, `codeload.github.com` | Pull the `deepsql-self-host` release archive |
+| `ghcr.io` (and `*.actions.githubusercontent.com`) | Pull `deepsql/backend` and `deepsql/frontend` images |
+| `registry.npmjs.org` | Install `@deepsql/mcp` |
+| `get.docker.com` (Linux only) | Auto-install Docker |
+| Azure OpenAI endpoint | Runtime LLM calls (configured during install) |
+
+<Aside type="caution" title="No inbound ports required">
+  `install.sh` does **not** open any ports on the host firewall or security group. Access is local (`http://localhost:3035`) or via SSM port forwarding. Don't expose the frontend port publicly.
+</Aside>
+
+## Permissions
+
+The script runs as the invoking user. It needs:
+
+- **Linux**: `sudo` available if Docker isn't installed (the Docker installer needs root). If running as root (e.g. EC2 UserData), no sudo needed.
+- **macOS**: Homebrew if Docker isn't installed.
+- Write access to `$HOME/.deepsql/` (where the bundle is unpacked when piped from the internet).
+
+## Database
+
+DeepSQL ships with its own Postgres+pgvector container for its internal data — you don't need to provide one for that.
+
+To **manage** your own Aurora/RDS through DeepSQL:
+
+- DeepSQL must be able to reach your DB endpoint (port 5432 for Postgres, 3306 for MySQL) over the network.
+- For AWS deploys, put the EC2 instance in the **same VPC** as the DB and allow inbound from its security group on the DB security group.
+
+See [Networking & Aurora/RDS access](/aws/networking/) for the full walkthrough.
+
+## Next
+
+- [Run the installer](/quickstart/)
+- [What `install.sh` does](/install/script-walkthrough/), step by step

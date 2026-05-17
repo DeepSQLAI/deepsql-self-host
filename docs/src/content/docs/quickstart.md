@@ -1,0 +1,87 @@
+---
+title: Quickstart
+description: Install DeepSQL in one command on any Linux or macOS host with Docker.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## The one-liner
+
+```bash
+curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+That's the whole install. Read on for what it does, what you need first, and how it ends.
+
+## Before you run it
+
+Make sure the host meets the [prerequisites](/prerequisites/). The short version:
+
+- Linux (x86_64 or arm64) or macOS, with `bash`, `curl`, `tar`, `openssl`
+- Docker — if not installed, the script offers to install it (`get.docker.com` on Linux, `brew install --cask docker` on macOS)
+- ~4 GB free RAM, ~10 GB free disk
+- Outbound HTTPS to `install.deepsql.ai`, `ghcr.io`, `github.com`, `registry.npmjs.org`, and `get.docker.com`
+
+## Run it
+
+<Steps>
+
+1. **Run the install command.**
+
+   ```bash
+   curl -fsSL https://install.deepsql.ai/install.sh | bash
+   ```
+
+2. **Set an admin email and password** when prompted (12+ characters).
+
+   The Azure OpenAI key and endpoint are bundled — no prompts there.
+
+3. **Wait ~2 minutes** while Docker pulls images and the stack starts.
+
+   Postgres, Valkey, backend, and frontend come up in that order. You'll see health checks succeed for each.
+
+4. **Pick which coding agents to configure** when asked (Claude Code, Codex, Cursor, all, or skip).
+
+   The installer runs `deepsql mcp config --install --for <agent> --force` for each one you pick.
+
+5. **Open the UI** at the printed URL.
+
+   ```
+   Frontend  http://localhost:3035
+   Backend   http://localhost:9085/api
+   ```
+
+</Steps>
+
+## Running headless (no TTY)
+
+If you're piping into a CI job or UserData script, set the admin credentials as environment variables so the installer doesn't prompt:
+
+```bash
+export DEEPSQL_INITIAL_ADMIN_EMAIL='admin@yourcompany.com'
+export DEEPSQL_INITIAL_ADMIN_PASSWORD='change-me-please-12chars'
+export DEEPSQL_INSTALL_DOCKER=true        # auto-install Docker on Linux without prompting
+curl -fsSL https://install.deepsql.ai/install.sh | bash
+```
+
+See [environment variables](/install/env-vars/) for the full list.
+
+## Accessing the UI from your laptop
+
+If you installed on a remote box with no public IP (e.g. the [CloudFormation deploy](/aws/cloudformation/)), forward the frontend port over SSM:
+
+```bash
+aws ssm start-session \
+  --region <region> \
+  --target <instance-id> \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters portNumber=3035,localPortNumber=3035
+```
+
+Then open `http://localhost:3035` on your laptop.
+
+## What's next
+
+- [What `install.sh` does](/install/script-walkthrough/) — every step explained
+- [CloudFormation](/aws/cloudformation/) — one-click EC2 + IAM + SSM
+- [Troubleshooting](/ops/troubleshooting/) — common install failures

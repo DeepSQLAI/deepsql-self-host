@@ -1,0 +1,112 @@
+---
+title: CloudFormation (one-click deploy)
+description: Provision a SSM-managed EC2 instance, run install.sh automatically, and grant DeepSQL support SSM access.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+The CloudFormation template provisions everything needed to run DeepSQL on AWS:
+
+- `t4g.large` EC2 instance, AL2023 ARM64, encrypted gp3 root volume (50 GB default)
+- No public IP — access only via SSM Session Manager
+- IAM instance role with `AmazonSSMManagedInstanceCore`
+- Optional IAM user the DeepSQL support team can use to SSM in for troubleshooting
+- UserData that runs `install.sh` non-interactively
+
+## One-click launch
+
+<Aside type="tip">
+  Click the button below in the AWS account where you want DeepSQL to run. You'll be taken straight to the CloudFormation review screen.
+</Aside>
+
+[**→ Launch Stack in us-east-1**](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateURL=https://install.deepsql.ai/cloudformation/deepsql-stack.yaml&stackName=deepsql-selfhost)
+
+To launch in a different region, change `region=us-east-1` to your region (e.g. `region=eu-west-1`).
+
+Direct template URL: `https://install.deepsql.ai/cloudformation/deepsql-stack.yaml`
+
+## Parameters
+
+| Parameter | Required | Default | Notes |
+| --- | --- | --- | --- |
+| **VpcId** | yes | — | Must be the same VPC as your Aurora/RDS |
+| **SubnetId** | yes | — | Private subnet with NAT egress |
+| **InstanceType** | no | `t4g.large` | ARM64 (Graviton). Options: `t4g.medium` → `m7g.xlarge` |
+| **VolumeSizeGiB** | no | `50` | gp3, encrypted |
+| **InstanceName** | no | `deepsql-selfhost` | EC2 Name tag |
+| **AdminEmail** | yes | `admin@yourcompany.com` | Initial DeepSQL admin login |
+| **AdminPassword** | yes | — | 12+ chars, `NoEcho` |
+| **CreateSupportUser** | no | `Yes` | Create the DeepSQL support IAM user |
+| **SupportUserName** | no | `deepsql-support` | IAM user name |
+
+## Deploy walkthrough
+
+<Steps>
+
+1. **Click Launch Stack.** Fill in `VpcId`, `SubnetId`, `AdminPassword`. Defaults are fine for everything else.
+
+2. **Acknowledge IAM capabilities** at the bottom (the stack creates an IAM role and optionally an IAM user).
+
+3. **Click Create stack.** Provisioning takes ~3 minutes. UserData runs `install.sh` after the instance boots, which takes another ~2 minutes.
+
+4. **Check the install completed.** Once stack status is `CREATE_COMPLETE`, SSM into the instance and check the log:
+
+   ```bash
+   aws ssm start-session \
+     --region <region> \
+     --target $(aws cloudformation describe-stacks \
+       --stack-name deepsql-selfhost --region <region> \
+       --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
+       --output text)
+
+   # then on the instance:
+   sudo tail -n 50 /var/log/deepsql-install.log
+   ```
+
+5. **Allow DB access.** Add the instance security group as an inbound source on your Aurora/RDS security group (port 5432 for Postgres, 3306 for MySQL). The instance SG ID is in the stack outputs (`InstanceSecurityGroupId`).
+
+6. **Forward the UI.** Use the `SSMPortForwardCommand` output to expose port 3035 on your laptop, then open `http://localhost:3035`.
+
+7. **Share support credentials with DeepSQL** (optional). The stack output `SupportSecretArn` is a Secrets Manager ARN. Grant DeepSQL's support principal `secretsmanager:GetSecretValue` on it, or fetch and share the contents securely:
+
+   ```bash
+   aws secretsmanager get-secret-value \
+     --region <region> \
+     --secret-id <SupportSecretArn> \
+     --query SecretString --output text
+   ```
+
+</Steps>
+
+## Stack outputs
+
+| Output | What it is |
+| --- | --- |
+| `InstanceId` | EC2 instance ID |
+| `PrivateIp` | Instance private IP |
+| `InstanceSecurityGroupId` | Add to your DB SG as inbound source |
+| `SSMConnectCommand` | Ready-to-paste interactive shell command |
+| `SSMPortForwardCommand` | Ready-to-paste port-forward command (port 3035) |
+| `InstallLogPath` | `/var/log/deepsql-install.log` |
+| `SupportSecretArn` | Secrets Manager ARN of the support user's access key (if created) |
+| `SupportSecretFetchCommand` | Command to retrieve the support credentials |
+
+## What gets provisioned
+
+| Resource | Purpose |
+| --- | --- |
+| `AWS::EC2::Instance` | The DeepSQL host |
+| `AWS::EC2::SecurityGroup` | Egress-only; no inbound listeners |
+| `AWS::IAM::Role` + `InstanceProfile` | SSM management for the instance |
+| `AWS::IAM::User` *(optional)* | DeepSQL support access |
+| `AWS::IAM::Policy` *(optional)* | Scoped `ssm:StartSession` on `deepsql:managed=true` instances |
+| `AWS::IAM::AccessKey` *(optional)* | Support user access key |
+| `AWS::SecretsManager::Secret` *(optional)* | Holds the support user's access key |
+
+## Tearing down
+
+```bash
+aws cloudformation delete-stack --stack-name deepsql-selfhost --region <region>
+```
+
+This removes everything in one shot.

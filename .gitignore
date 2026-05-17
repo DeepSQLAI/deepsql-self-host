@@ -3,3 +3,8 @@
 .DS_Store
 .remember/
 scripts/llm-config.sh
+
+# Docs site (Starlight)
+docs/node_modules
+docs/dist
+docs/.astro

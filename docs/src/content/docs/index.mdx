@@ -1,0 +1,51 @@
+---
+title: DeepSQL Self-Host
+description: Run the full DeepSQL stack inside your own VPC. One-line install, no data leaves your network.
+template: splash
+hero:
+  tagline: Run the full DeepSQL stack inside your own VPC. One line to install.
+  actions:
+    - text: Quickstart
+      link: /quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/DeepSQLAI/deepsql-self-host
+      icon: external
+---
+
+import { Card, CardGrid, Code } from '@astrojs/starlight/components';
+
+## Install in one line
+
+<Code
+  code={`curl -fsSL https://install.deepsql.ai/install.sh | bash`}
+  lang="bash"
+  frame="terminal"
+/>
+
+That command brings up the full stack — frontend, backend, Postgres + pgvector, Valkey — on any Linux or macOS host with Docker. After install completes, the UI is available at `http://localhost:3035`.
+
+## What you get
+
+<CardGrid>
+  <Card title="Self-hosted, in your VPC" icon="setting">
+    Runs on your hardware. No data leaves your network. Talks to your existing Aurora or RDS over private networking.
+  </Card>
+  <Card title="One-click AWS deploy" icon="rocket">
+    A [CloudFormation template](/aws/cloudformation/) provisions an SSM-managed EC2 instance and runs the installer automatically.
+  </Card>
+  <Card title="MCP for coding agents" icon="puzzle">
+    The installer wires up DeepSQL's MCP server for Claude Code, Codex, and Cursor so your agents can query your DB directly.
+  </Card>
+  <Card title="Secure by default" icon="approve-check">
+    No public IP required. Encrypted EBS, IMDSv2, least-privilege IAM, SSM-only access.
+  </Card>
+</CardGrid>
+
+## Next steps
+
+- [Quickstart](/quickstart/) — the curl one-liner, end to end
+- [Prerequisites](/prerequisites/) — what `install.sh` needs on the host
+- [What `install.sh` does](/install/script-walkthrough/) — a full walkthrough of every step
+- [CloudFormation](/aws/cloudformation/) — provision EC2 + IAM + SSM in one click

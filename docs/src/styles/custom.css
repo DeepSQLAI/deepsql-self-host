@@ -1,0 +1,40 @@
+/* DeepSQL brand theme for Starlight — matches deepsql.ai (Tailwind gray-900 #111827) */
+
+:root {
+  --sl-color-accent-low: #d6dae0;
+  --sl-color-accent: #1f2937;
+  --sl-color-accent-high: #111827;
+
+  --sl-font: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --sl-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+:root[data-theme="light"] {
+  --sl-color-bg: #ffffff;
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #f9fafb;
+  --sl-color-text: #111827;
+  --sl-color-text-accent: #111827;
+  --sl-color-hairline: #e5e7eb;
+  --sl-color-hairline-light: #f3f4f6;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-bg: #0b0f17;
+  --sl-color-bg-nav: #0b0f17;
+  --sl-color-bg-sidebar: #111827;
+  --sl-color-text: #f9fafb;
+  --sl-color-text-accent: #ffffff;
+  --sl-color-hairline: #1f2937;
+  --sl-color-hairline-light: #111827;
+}
+
+.sl-markdown-content {
+  line-height: 1.65;
+}
+
+.expressive-code .frame {
+  border-radius: 0.5rem;
+}
