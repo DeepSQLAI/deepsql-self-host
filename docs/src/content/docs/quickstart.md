@@ -19,6 +19,7 @@ Make sure the host meets the [prerequisites](/prerequisites/). The short version
 
 - Linux (x86_64 or arm64) or macOS, with `bash`, `curl`, `tar`, `openssl`
 - **Docker** and **Docker Compose** installed and running
+- A coding agent installed on the host — **[Claude Code](https://docs.claude.com/en/docs/claude-code/overview)**, **[Codex](https://github.com/openai/codex)**, or **[Cursor CLI](https://docs.cursor.com/en/cli/overview)** — so the installer can wire up DeepSQL's MCP server for it
 - **~8 GB free RAM, ~50 GB free disk**
 - Outbound HTTPS to `install.deepsql.ai`, `ghcr.io`, `github.com`, and `registry.npmjs.org`
 
