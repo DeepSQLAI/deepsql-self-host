@@ -15,6 +15,14 @@
 
 set -uo pipefail
 
+# UserData / SSM / CI often invoke this with HOME unset, which breaks
+# the OUT_DIR default below under `set -u`.
+if [[ -z "${HOME:-}" ]]; then
+  HOME="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6 || true)"
+  [[ -z "$HOME" ]] && HOME=/root
+  export HOME
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="${DEEPSQL_COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
