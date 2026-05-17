@@ -113,7 +113,7 @@ Resources:
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: DeepSQL self-host — egress only, SSM-managed.
+      GroupDescription: DeepSQL self-host - egress only, SSM-managed.
       VpcId: !Ref VpcId
       SecurityGroupEgress:
         - IpProtocol: -1
@@ -180,7 +180,10 @@ Resources:
           exec > /var/log/deepsql-install.log 2>&1
           set -eux
 
-          # Wait for network + DNS before pulling installer.
+          # AL2023 ships with curl-minimal, tar, and openssl. install.sh's
+          # ensure_prerequisites is a no-op on AL2023; install.sh also handles
+          # Docker install via get.docker.com. So UserData only has to wait
+          # for network + invoke the installer.
           for i in $(seq 1 60); do
             if curl -fsSL -o /dev/null https://install.deepsql.ai/install.sh; then
               break
@@ -188,10 +191,8 @@ Resources:
             sleep 5
           done
 
-          dnf -y update
-          dnf -y install curl tar nodejs npm
-
           export DEEPSQL_INSTALL_DOCKER=true
+          export DEEPSQL_SKIP_MCP=true
           export DEEPSQL_INITIAL_ADMIN_EMAIL='${AdminEmail}'
           export DEEPSQL_INITIAL_ADMIN_PASSWORD='${AdminPassword}'
 

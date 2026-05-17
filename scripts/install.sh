@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# UserData / SSM / CI often invoke this with HOME unset. The bootstrap and
+# install_dir defaults below reference $HOME and would explode under `set -u`
+# without this. Fall back to the OS-recorded home for the current uid, then
+# /root as a final guard.
+if [[ -z "${HOME:-}" ]]; then
+  HOME="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6 || true)"
+  [[ -z "$HOME" ]] && HOME=/root
+  export HOME
+fi
+
 # ── Bootstrap (curl | bash) ───────────────────────────────────────────────────
 # When piped from the internet BASH_SOURCE[0] is unset and docker-compose.yml
 # does not exist locally. Download the repo, install it, then re-exec.
@@ -279,30 +289,71 @@ confirm_docker_install() {
   [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
 }
 
+install_docker_compose_plugin() {
+  # Docker Compose v2 ships as a CLI plugin. AL2023 doesn't have it packaged
+  # under any name we can dnf-install, so we fetch the static binary from
+  # the official GitHub release into the system-wide cli-plugins dir.
+  local sudo_cmd="$1"
+  if docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Installing Docker Compose v2 plugin..."
+  local arch
+  case "$(uname -m)" in
+    aarch64|arm64) arch="aarch64" ;;
+    x86_64|amd64)  arch="x86_64" ;;
+    *) echo "Error: unsupported arch $(uname -m) for Compose plugin install." >&2; exit 1 ;;
+  esac
+  local plugin_dir="/usr/local/lib/docker/cli-plugins"
+  $sudo_cmd mkdir -p "$plugin_dir"
+  $sudo_cmd curl -fsSL \
+    "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$arch" \
+    -o "$plugin_dir/docker-compose"
+  $sudo_cmd chmod +x "$plugin_dir/docker-compose"
+}
+
 install_docker_linux() {
   if ! confirm_docker_install; then
     echo "Error: Docker is required. Install Docker, then rerun this script." >&2
     exit 1
   fi
 
-  local tmp_script
-  tmp_script="$(mktemp)"
-  echo "Downloading Docker's official Linux install script..."
-  curl -fsSL https://get.docker.com -o "$tmp_script"
+  local distro=""
+  [[ -f /etc/os-release ]] && distro="$(. /etc/os-release; echo "${ID:-}")"
 
-  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    sh "$tmp_script"
-  else
+  local sudo_cmd=""
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     require_command sudo
-    sudo sh "$tmp_script"
+    sudo_cmd="sudo"
   fi
-  rm -f "$tmp_script"
 
-  if command -v systemctl >/dev/null 2>&1; then
-    sudo systemctl enable --now docker >/dev/null 2>&1 || true
-  elif command -v service >/dev/null 2>&1; then
-    sudo service docker start >/dev/null 2>&1 || true
-  fi
+  case "$distro" in
+    amzn)
+      # get.docker.com does not support Amazon Linux. Use AL2023's native
+      # docker package and add the Compose plugin manually.
+      echo "Installing Docker via Amazon Linux 2023 package..."
+      $sudo_cmd dnf -y install docker
+      if command -v systemctl >/dev/null 2>&1; then
+        $sudo_cmd systemctl enable --now docker >/dev/null 2>&1 || true
+      fi
+      install_docker_compose_plugin "$sudo_cmd"
+      ;;
+    *)
+      local tmp_script
+      tmp_script="$(mktemp)"
+      echo "Downloading Docker's official Linux install script..."
+      curl -fsSL https://get.docker.com -o "$tmp_script"
+      $sudo_cmd sh "$tmp_script"
+      rm -f "$tmp_script"
+      if command -v systemctl >/dev/null 2>&1; then
+        $sudo_cmd systemctl enable --now docker >/dev/null 2>&1 || true
+      elif command -v service >/dev/null 2>&1; then
+        $sudo_cmd service docker start >/dev/null 2>&1 || true
+      fi
+      # get.docker.com bundles compose v2, but verify and install if missing
+      install_docker_compose_plugin "$sudo_cmd"
+      ;;
+  esac
 }
 
 install_docker_macos() {
