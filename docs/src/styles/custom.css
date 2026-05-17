@@ -17,6 +17,8 @@
   --sl-color-bg-sidebar: #f9fafb;
   --sl-color-text: #111827;
   --sl-color-text-accent: #111827;
+  /* Active sidebar/link background uses text-accent; text-on-accent uses text-invert. */
+  --sl-color-text-invert: #ffffff;
   --sl-color-hairline: #e5e7eb;
   --sl-color-hairline-light: #f3f4f6;
 }
@@ -27,6 +29,9 @@
   --sl-color-bg-sidebar: #111827;
   --sl-color-text: #f9fafb;
   --sl-color-text-accent: #ffffff;
+  /* Active sidebar item gets a white background (from text-accent) — text must
+     be dark or it disappears. */
+  --sl-color-text-invert: #111827;
   --sl-color-hairline: #1f2937;
   --sl-color-hairline-light: #111827;
 }
