@@ -107,6 +107,93 @@ require_command() {
   fi
 }
 
+detect_package_manager() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    command -v brew >/dev/null 2>&1 && echo "brew" || echo "macos-nobrew"
+    return
+  fi
+  local pm
+  for pm in dnf apt-get apk pacman zypper yum; do
+    if command -v "$pm" >/dev/null 2>&1; then
+      echo "$pm"
+      return
+    fi
+  done
+  echo "unknown"
+}
+
+ensure_prerequisites() {
+  # Installs curl, tar, openssl when missing, using the host's native package
+  # manager. Works on AL2023/RHEL/Fedora (dnf|yum), Debian/Ubuntu (apt-get),
+  # Alpine (apk), Arch (pacman), openSUSE (zypper), and macOS (brew).
+  local missing=() cmd
+  for cmd in curl tar openssl; do
+    command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+  done
+  [[ ${#missing[@]} -eq 0 ]] && return 0
+
+  local pm
+  pm="$(detect_package_manager)"
+  echo "Installing prerequisites (${missing[*]}) via $pm on $(uname -s)/$(uname -m)..."
+  echo "You may be prompted for your sudo password."
+
+  local sudo_cmd=""
+  if [[ "$pm" != "brew" && "${EUID:-$(id -u)}" -ne 0 ]]; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo_cmd="sudo"
+    else
+      echo "Error: missing ${missing[*]} and neither root nor sudo is available." >&2
+      echo "Install them manually and re-run." >&2
+      exit 1
+    fi
+  fi
+
+  case "$pm" in
+    dnf)
+      $sudo_cmd dnf install -y "${missing[@]}"
+      ;;
+    yum)
+      $sudo_cmd yum install -y "${missing[@]}"
+      ;;
+    apt-get)
+      $sudo_cmd apt-get update -qq
+      DEBIAN_FRONTEND=noninteractive $sudo_cmd apt-get install -y -q "${missing[@]}"
+      ;;
+    apk)
+      $sudo_cmd apk add --no-cache "${missing[@]}"
+      ;;
+    pacman)
+      $sudo_cmd pacman -Sy --noconfirm "${missing[@]}"
+      ;;
+    zypper)
+      $sudo_cmd zypper -n install "${missing[@]}"
+      ;;
+    brew)
+      brew install "${missing[@]}"
+      ;;
+    macos-nobrew)
+      echo "Error: missing ${missing[*]} on macOS without Homebrew." >&2
+      echo "Install Homebrew from https://brew.sh and re-run, or install the packages manually." >&2
+      exit 1
+      ;;
+    unknown|*)
+      echo "Error: could not detect a supported package manager." >&2
+      echo "Detected: OS=$(uname -s), Arch=$(uname -m)" >&2
+      echo "Install ${missing[*]} manually and re-run." >&2
+      exit 1
+      ;;
+  esac
+
+  local still_missing=()
+  for cmd in "${missing[@]}"; do
+    command -v "$cmd" >/dev/null 2>&1 || still_missing+=("$cmd")
+  done
+  if [[ ${#still_missing[@]} -ne 0 ]]; then
+    echo "Error: ${still_missing[*]} still missing after install attempt." >&2
+    exit 1
+  fi
+}
+
 is_placeholder() {
   local value="${1:-}"
   [[ -z "$value" || "$value" == *change-me-* || "$value" == *replace-with-* || "$value" == *your-* || "$value" == "admin@yourcompany.com" ]]
@@ -625,9 +712,8 @@ install_mcp_package() {
   configure_mcp_agents
 }
 
-require_command curl
+ensure_prerequisites
 ensure_docker_available
-require_command openssl
 
 run_docker compose version >/dev/null 2>&1 || {
   echo "Error: docker compose is required." >&2

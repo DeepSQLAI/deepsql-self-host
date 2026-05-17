@@ -23,12 +23,14 @@ These must be present on `PATH` before running:
 | Command | Purpose | Auto-installed? |
 | --- | --- | --- |
 | `bash` | Shell | No (must be installed) |
-| `curl` | Download installer + bundle | No |
-| `tar` | Extract release archive | No |
-| `openssl` | Generate random secrets | No |
+| `curl` | Download installer + bundle | Yes — via your OS package manager |
+| `tar` | Extract release archive | Yes — via your OS package manager |
+| `openssl` | Generate random secrets | Yes — via your OS package manager |
 | `docker` | Run the stack | No (must be installed) |
 | `docker compose` | Orchestrate containers | No (must be installed) |
 | `npm` (Node 18+) | Install `@deepsql/mcp` | No (skipped if missing) |
+
+The installer detects your package manager (`dnf`, `yum`, `apt-get`, `apk`, `pacman`, `zypper`, or `brew` on macOS) and installs the small tools (`curl`, `tar`, `openssl`) automatically when missing. Architecture (x86_64 / arm64) is handled by the package manager — no extra config needed.
 
 If `npm` is missing, the MCP step is skipped with a clear message — the core stack still installs.
 
