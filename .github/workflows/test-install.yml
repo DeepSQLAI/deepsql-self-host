@@ -37,9 +37,17 @@ concurrency:
 
 jobs:
   install-and-verify:
-    name: Install + verify stack on ubuntu-latest
-    runs-on: ubuntu-latest
+    name: Install + verify on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-latest = Ubuntu 24.04 / x86_64
+        # ubuntu-24.04-arm = Ubuntu 24.04 / arm64 (free for public repos),
+        # matches the architecture of the t4g.large CloudFormation deploy.
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
 
     env:
       # Non-interactive install. All these short-circuit prompts and external
