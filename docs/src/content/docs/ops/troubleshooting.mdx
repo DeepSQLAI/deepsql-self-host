@@ -5,6 +5,78 @@ description: Common install and runtime failures, and how to fix them.
 
 import { Aside } from '@astrojs/starlight/components';
 
+## First thing to try: collect a diagnostic bundle
+
+When something's wrong and you don't know where to start, run the diagnostic script. It packages everything we'd ask for in a support ticket into one tarball you can attach to a GitHub issue or email — with secrets redacted automatically.
+
+```bash
+cd ~/.deepsql/self-host       # or wherever you installed
+./scripts/diagnose.sh
+```
+
+Output:
+
+```
+================================================================
+Diagnostic bundle created (217 KB):
+
+  /home/ec2-user/deepsql-diag-20260517-164938-ip-10-0-1-42.tar.gz
+
+Secrets matching *KEY/*SECRET/*PASSWORD/*TOKEN/*CREDENTIAL/*EMAIL
+are redacted in env.redacted. Open the tarball and review before
+sharing if you want to double-check.
+================================================================
+```
+
+### What's in the bundle
+
+| File | Contents |
+| --- | --- |
+| `metadata.txt` | When it was generated, hostname, install dir |
+| `system.txt` | OS, kernel, CPU count, memory, disk usage |
+| `docker.txt` | Docker + Docker Compose versions, daemon info, disk usage |
+| `stack.txt` | `compose ps`, image refs, container health, resource snapshot |
+| `logs/{postgres,valkey,backend,frontend}.log` | Last 1000 lines per service |
+| `env.redacted` | Your `.env` with secret values masked |
+| `docker-compose.yml` | Copy of the compose file (no secrets) |
+| `network.txt` | DNS resolution + TCP 443 reachability to install / ghcr / GitHub / npm / Azure |
+| `status.txt` | Output of `./scripts/status.sh` |
+| `smoke-test.txt` | Output of `./scripts/smoke-test.sh` |
+| `backend-errors.txt` | Pre-filtered error/exception/failure lines from the backend log |
+| `install-context.txt` | Git rev (if a checkout), install dir listing |
+| `README.txt` | Index of all files + secrets-handling notes |
+
+### What is NOT collected
+
+Database contents, queries, query results, LLM prompts and responses, user data, vector embeddings. The script reads `.env`, container logs, and system metadata only.
+
+### Secret redaction
+
+Values for any `.env` key whose name matches one of these patterns are replaced with `***REDACTED***`:
+
+- `*KEY` (e.g. `AZURE_OPENAI_KEY`, `ENCRYPTION_KEY`)
+- `*SECRET` (e.g. `SECURITY_JWT_SECRET`, `ADMIN_BOOTSTRAP_SECRET`)
+- `*PASSWORD` (e.g. `DB_PASSWORD`, `DEEPSQL_INITIAL_ADMIN_PASSWORD`)
+- `*TOKEN`, `*CREDENTIAL`, `*EMAIL`
+
+<Aside type="caution" title="Always review before sharing">
+  The redaction is pattern-based and aggressive, but you know your environment best. Untar the bundle and skim `env.redacted` before sending it to anyone outside your org.
+</Aside>
+
+### Customizing where the bundle lands
+
+```bash
+# Write to a specific directory instead of $HOME
+DEEPSQL_DIAG_OUT_DIR=/var/log ./scripts/diagnose.sh
+
+# Point at a non-default install location
+DEEPSQL_COMPOSE_FILE=/opt/deepsql/docker-compose.yml \
+DEEPSQL_ENV_FILE=/opt/deepsql/.env \
+  ./scripts/diagnose.sh
+```
+
+---
+
 ## Install failures
 
 ### "Error: required command 'curl' is not installed."
@@ -71,12 +143,10 @@ Add `$(npm bin -g)` to your `PATH` or re-run the installer.
 
 ## Asking for help
 
-When opening an issue, include:
+The fastest path to a fix:
 
-1. Installer log: full output, or `/var/log/deepsql-install.log` on CloudFormation deploys
-2. `docker compose -p deepsql-selfhost ps`
-3. Last 100 lines of the failing service's logs
-4. Output of `./scripts/status.sh`
-5. Your `.env` file with **all secrets redacted** (passwords, keys, tokens)
+1. **Attach a diagnostic bundle** — `./scripts/diagnose.sh` (see [the top of this page](#first-thing-to-try-collect-a-diagnostic-bundle)) packages logs, config (redacted), system info, and reachability checks into one tarball.
+2. **Describe what you were doing** — the exact command you ran, what you expected, what happened instead.
+3. **Include the installer log** if the install itself failed — full terminal output, or `/var/log/deepsql-install.log` on CloudFormation deploys.
 
 File issues at: https://github.com/DeepSQLAI/deepsql-self-host/issues
