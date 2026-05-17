@@ -22,6 +22,14 @@ Set both to run the installer with no TTY (e.g. CI, UserData).
 | `AZURE_OPENAI_ENDPOINT` | (bundled) | Override the bundled Azure OpenAI endpoint |
 | `DEEPSQL_SKIP_REMOTE_CONFIG` | `false` | Set to `true` to skip the bundled-config fetch entirely |
 
+## MCP & coding agents
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DEEPSQL_SKIP_MCP` | `false` | `true` to skip the `npm install -g @deepsql/mcp@latest` step and the agent-config prompt entirely. Use for CI and other headless installs. |
+
+The interactive "which coding agent(s) will you use" prompt also auto-skips when no TTY is attached, so unattended installs (CloudFormation UserData, CI) don't hang.
+
 ## Docker
 
 | Variable | Default | Purpose |

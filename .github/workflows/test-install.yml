@@ -1,0 +1,116 @@
+# Runs the actual install.sh against a clean GitHub-hosted runner with Docker
+# already available, then asserts the stack is healthy. Required check before
+# merge so we catch the "everyone's install broke today" class of bug.
+#
+# Triggered on changes to anything that materially affects the install path:
+# the script itself, sibling scripts, compose file, init SQL, .env template.
+
+name: test-install
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/install.sh'
+      - 'scripts/uninstall.sh'
+      - 'scripts/status.sh'
+      - 'scripts/smoke-test.sh'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - '.env.example'
+      - '.github/workflows/test-install.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/install.sh'
+      - 'scripts/uninstall.sh'
+      - 'scripts/status.sh'
+      - 'scripts/smoke-test.sh'
+      - 'docker-compose.yml'
+      - 'docker/**'
+      - '.env.example'
+      - '.github/workflows/test-install.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: test-install-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-and-verify:
+    name: Install + verify stack on ubuntu-latest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Non-interactive install. All these short-circuit prompts and external
+      # fetches so the run is hermetic and doesn't depend on the live
+      # install.deepsql.ai endpoint or a real Azure OpenAI account.
+      DEEPSQL_INITIAL_ADMIN_EMAIL: ci@example.com
+      DEEPSQL_INITIAL_ADMIN_PASSWORD: ci-test-password-1234
+      DEEPSQL_SKIP_MCP: 'true'
+      DEEPSQL_SKIP_REMOTE_CONFIG: 'true'
+      AZURE_OPENAI_KEY: ci-fake-key-do-not-use-in-prod
+      AZURE_OPENAI_ENDPOINT: https://ci-fake.openai.azure.invalid
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show runner versions
+        run: |
+          uname -a
+          docker version --format 'Docker {{.Server.Version}}'
+          docker compose version
+
+      - name: Run install.sh
+        run: ./scripts/install.sh
+
+      - name: Verify backend health endpoint
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9085/api/actuator/health > /tmp/health.json; then
+              echo "Backend healthy:"
+              cat /tmp/health.json
+              echo
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::backend never became healthy"
+          exit 1
+
+      - name: Verify frontend serves
+        run: |
+          curl -fsSI http://localhost:3035 | head -3
+
+      - name: Run smoke test
+        run: ./scripts/smoke-test.sh
+
+      - name: Verify status.sh runs clean
+        run: ./scripts/status.sh
+
+      - name: Container state (always)
+        if: always()
+        run: |
+          docker compose -p deepsql-selfhost ps
+          echo "--- top ---"
+          docker compose -p deepsql-selfhost top || true
+
+      - name: Capture logs on failure
+        if: failure()
+        run: |
+          for svc in postgres valkey backend frontend; do
+            echo "::group::$svc"
+            docker compose -p deepsql-selfhost logs --tail=200 "$svc" || true
+            echo "::endgroup::"
+          done
+
+      - name: Verify uninstall.sh runs clean
+        if: success()
+        run: ./scripts/uninstall.sh
+
+      - name: Final teardown (always)
+        if: always()
+        run: |
+          docker compose -p deepsql-selfhost down -v --remove-orphans || true
+          docker system df

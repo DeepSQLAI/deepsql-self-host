@@ -559,6 +559,11 @@ load_remote_config() {
 }
 
 configure_mcp_agents() {
+  if ! has_tty; then
+    printf "  ${DIM}No TTY — skipping interactive MCP agent configuration.${RESET}\n"
+    printf "  ${DIM}Run later: deepsql mcp config --install --for <claude-code|codex|cursor> --force${RESET}\n"
+    return 0
+  fi
   local agents=("claude-code" "codex" "cursor")
   local labels=("Claude Code" "Codex" "Cursor")
   printf "\n"
@@ -604,6 +609,10 @@ configure_mcp_agents() {
 }
 
 install_mcp_package() {
+  if [[ "${DEEPSQL_SKIP_MCP:-false}" == "true" ]]; then
+    printf "  ${DIM}DEEPSQL_SKIP_MCP=true — skipping @deepsql/mcp install and agent config.${RESET}\n"
+    return 0
+  fi
   if ! command -v npm >/dev/null 2>&1; then
     printf "  ${DIM}npm not found — skipping @deepsql/mcp install.${RESET}\n"
     printf "  ${DIM}Install Node.js and run: npm install -g @deepsql/mcp@latest${RESET}\n"
