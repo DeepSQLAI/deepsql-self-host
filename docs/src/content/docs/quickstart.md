@@ -18,9 +18,9 @@ That's the whole install. Read on for what it does, what you need first, and how
 Make sure the host meets the [prerequisites](/prerequisites/). The short version:
 
 - Linux (x86_64 or arm64) or macOS, with `bash`, `curl`, `tar`, `openssl`
-- Docker — if not installed, the script offers to install it (`get.docker.com` on Linux, `brew install --cask docker` on macOS)
-- ~4 GB free RAM, ~10 GB free disk
-- Outbound HTTPS to `install.deepsql.ai`, `ghcr.io`, `github.com`, `registry.npmjs.org`, and `get.docker.com`
+- **Docker** and **Docker Compose** installed and running
+- **~8 GB free RAM, ~50 GB free disk**
+- Outbound HTTPS to `install.deepsql.ai`, `ghcr.io`, `github.com`, and `registry.npmjs.org`
 
 ## Run it
 

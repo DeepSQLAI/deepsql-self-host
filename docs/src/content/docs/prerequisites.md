@@ -26,8 +26,8 @@ These must be present on `PATH` before running:
 | `curl` | Download installer + bundle | No |
 | `tar` | Extract release archive | No |
 | `openssl` | Generate random secrets | No |
-| `docker` | Run the stack | Yes — script offers to install |
-| `docker compose` | Orchestrate containers | Yes — comes with Docker |
+| `docker` | Run the stack | No (must be installed) |
+| `docker compose` | Orchestrate containers | No (must be installed) |
 | `npm` (Node 18+) | Install `@deepsql/mcp` | No (skipped if missing) |
 
 If `npm` is missing, the MCP step is skipped with a clear message — the core stack still installs.
@@ -37,8 +37,8 @@ If `npm` is missing, the MCP step is skipped with a clear message — the core s
 | Resource | Minimum | Recommended |
 | --- | --- | --- |
 | vCPUs | 2 | 2+ (t4g.large = 2 vCPU, 8 GB) |
-| RAM | 4 GB | 8 GB |
-| Disk (root) | 20 GB | 50 GB (CloudFormation default) |
+| RAM | 8 GB | 8 GB+ |
+| Disk (root) | 50 GB | 50 GB (CloudFormation default) |
 | Disk type | any | gp3 SSD or equivalent |
 
 The Postgres data volume lives inside the Docker volume mount on the root disk by default.
@@ -53,7 +53,6 @@ The installer needs outbound HTTPS (port 443) to:
 | `github.com`, `codeload.github.com` | Pull the `deepsql-self-host` release archive |
 | `ghcr.io` (and `*.actions.githubusercontent.com`) | Pull `deepsql/backend` and `deepsql/frontend` images |
 | `registry.npmjs.org` | Install `@deepsql/mcp` |
-| `get.docker.com` (Linux only) | Auto-install Docker |
 | Azure OpenAI endpoint | Runtime LLM calls (configured during install) |
 
 <Aside type="caution" title="No inbound ports required">
