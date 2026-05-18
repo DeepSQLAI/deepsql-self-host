@@ -3,7 +3,7 @@ title: DeepSQL Self-Host
 description: Run the full DeepSQL stack inside your own VPC. One-line install, no data leaves your network.
 template: splash
 hero:
-  tagline: Run the full DeepSQL stack inside your own VPC. One line to install.
+  tagline: Run the full DeepSQL stack inside your own VPC. One line on Docker or one click on AWS.
   actions:
     - text: Quickstart
       link: /quickstart/
@@ -14,9 +14,11 @@ hero:
       icon: external
 ---
 
-import { Card, CardGrid, Code } from '@astrojs/starlight/components';
+import { Card, CardGrid, Code, LinkButton } from '@astrojs/starlight/components';
 
-## Install in one line
+## Two ways to install
+
+### Local install (Docker)
 
 <Code
   code={`curl -fsSL https://install.deepsql.ai/install.sh | bash`}
@@ -24,7 +26,15 @@ import { Card, CardGrid, Code } from '@astrojs/starlight/components';
   frame="terminal"
 />
 
-That command brings up the full stack — frontend, backend, Postgres + pgvector, Valkey — on any Linux or macOS host with Docker. After install completes, the UI is available at `http://localhost:3035`.
+Brings up the full stack — frontend, backend, Postgres + pgvector, Valkey — on any Linux or macOS host with Docker. UI at `http://localhost:3035`. Works on Amazon Linux 2023, Ubuntu, Debian, Fedora, Alpine, Arch, openSUSE, macOS, on x86_64 and arm64.
+
+### AWS (one-click CloudFormation)
+
+<LinkButton href="https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateURL=https://install.deepsql.ai/cloudformation/deepsql-stack.yaml&stackName=deepsql-selfhost" variant="primary" icon="external">
+  Launch Stack in us-east-1
+</LinkButton>
+
+Provisions a `t4g.large` (AL2023, arm64) in your existing VPC — the same one as your Aurora or RDS — and runs the installer automatically. No public IP, SSM-managed, encrypted gp3 root, optional support IAM user for the DeepSQL team. Change the region in the URL (`region=us-east-1` → your region) before clicking. [Full walkthrough](/aws/cloudformation/).
 
 ## What you get
 
@@ -32,8 +42,8 @@ That command brings up the full stack — frontend, backend, Postgres + pgvector
   <Card title="Self-hosted, in your VPC" icon="setting">
     Runs on your hardware. No data leaves your network. Talks to your existing Aurora or RDS over private networking.
   </Card>
-  <Card title="One-click AWS deploy" icon="rocket">
-    A [CloudFormation template](/aws/cloudformation/) provisions an SSM-managed EC2 instance and runs the installer automatically.
+  <Card title="Tested end-to-end on every release" icon="approve-check-circle">
+    Every release is verified on a real CloudFormation deploy — Amazon Linux 2023 arm64, install.sh, MCP wiring, the whole pipeline. CI on each PR runs the installer on Ubuntu x86_64 + arm64.
   </Card>
   <Card title="MCP for coding agents" icon="puzzle">
     The installer wires up DeepSQL's MCP server for Claude Code, Codex, and Cursor so your agents can query your DB directly.
