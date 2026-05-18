@@ -708,10 +708,38 @@ load_remote_config() {
   fi
 }
 
+auto_install_for_detected_agents() {
+  # Headless path: detect which coding agents are installed on the host and
+  # install the DeepSQL MCP config + DBA-consult skill for each. Used when
+  # there's no TTY to drive the interactive picker (curl|bash from a script,
+  # CFN UserData with a developer host, etc.). Idempotent — does nothing for
+  # agents that aren't present.
+  local installed=()
+  [[ -f "$HOME/.claude.json" || -d "$HOME/.claude" ]] && installed+=("claude-code")
+  [[ -d "$HOME/.codex" ]]  && installed+=("codex")
+  [[ -d "$HOME/.cursor" ]] && installed+=("cursor")
+
+  if [[ ${#installed[@]} -eq 0 ]]; then
+    printf "  ${DIM}No coding agents detected on host — skipping MCP config + skill install.${RESET}\n"
+    printf "  ${DIM}After installing an agent, run: deepsql mcp config --install --for <agent> --force${RESET}\n"
+    return 0
+  fi
+
+  printf "  Detected coding agents: %s\n" "${installed[*]}"
+  printf "  Installing DeepSQL MCP config + DBA-consult skill for each...\n"
+  local agent
+  for agent in "${installed[@]}"; do
+    if deepsql mcp config --install --for "$agent" --force; then
+      echo "  ✓ $agent configured"
+    else
+      printf "  ${DIM}  $agent config failed — run manually: deepsql mcp config --install --for $agent --force${RESET}\n"
+    fi
+  done
+}
+
 configure_mcp_agents() {
   if ! has_tty; then
-    printf "  ${DIM}No TTY — skipping interactive MCP agent configuration.${RESET}\n"
-    printf "  ${DIM}Run later: deepsql mcp config --install --for <claude-code|codex|cursor> --force${RESET}\n"
+    auto_install_for_detected_agents
     return 0
   fi
   local agents=("claude-code" "codex" "cursor")
