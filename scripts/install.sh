@@ -663,7 +663,8 @@ bootstrap_admin() {
   if [[ "$response" == *"Admin reset successfully"* || "$response" == *"Admin created successfully"* ]]; then
     echo "Admin bootstrap complete. Login username: admin"
     set_env_value SECURITY_ADMIN_BOOTSTRAP_ENABLED "false"
-    echo "Disabled admin bootstrap in $ENV_FILE."
+    set_env_value DEEPSQL_INITIAL_ADMIN_PASSWORD ""
+    echo "Disabled admin bootstrap and cleared admin password from $ENV_FILE."
     echo "Recreating backend with admin bootstrap disabled..."
     compose up -d backend
     wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
@@ -953,10 +954,9 @@ printf "${BOLD}  Access${RESET}\n"
 printf "  Frontend  ${CYAN}http://localhost:${DEEPSQL_FRONTEND_PORT}${RESET}\n"
 printf "  Backend   ${CYAN}http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
 printf "\n"
-if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" || -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
-  printf "${BOLD}  Admin credentials${RESET}\n"
-  [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" ]]    && printf "  Email     ${CYAN}${DEEPSQL_INITIAL_ADMIN_EMAIL}${RESET}\n"
-  [[ -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]] && printf "  Password  ${CYAN}${DEEPSQL_INITIAL_ADMIN_PASSWORD}${RESET}\n"
+if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" ]]; then
+  printf "${BOLD}  Admin account${RESET}\n"
+  printf "  Email     ${CYAN}${DEEPSQL_INITIAL_ADMIN_EMAIL}${RESET}\n"
   printf "\n"
 fi
 printf "${BOLD}  Images${RESET}\n"
