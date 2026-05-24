@@ -697,6 +697,26 @@ bootstrap_admin() {
   fi
 }
 
+# Auto-bump the image-pin lines in .env to match whatever .env.example pins to
+# in the freshly-extracted release archive. Makes `curl … | bash` a single-
+# command upgrade — operators no longer have to manually sed their .env when
+# moving from v1.0.x → v1.2.x. Customer secrets, admin credentials, and
+# everything else in .env are left untouched.
+bump_image_pins_from_release() {
+  if [[ ! -f "$ENV_FILE" || ! -f "$ROOT_DIR/.env.example" ]]; then
+    return 0
+  fi
+  local var current target
+  for var in DEEPSQL_BACKEND_IMAGE DEEPSQL_FRONTEND_IMAGE; do
+    current="$(grep -E "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
+    target="$(grep -E "^${var}=" "$ROOT_DIR/.env.example" | head -1 | cut -d= -f2-)"
+    if [[ -n "$current" && -n "$target" && "$current" != "$target" ]]; then
+      echo "▸ Upgrading ${var}: ${current} → ${target}"
+      set_env_value "$var" "$target"
+    fi
+  done
+}
+
 pull_application_images() {
   if [[ "${DEEPSQL_SKIP_IMAGE_PULL:-false}" == "true" ]]; then
     ensure_local_image "${DEEPSQL_BACKEND_IMAGE}"
@@ -949,6 +969,7 @@ if [[ "${VECTOR_STORE_TYPE:-pgvector}" == "azure" || "${AZURE_SEARCH_ENABLED:-fa
 fi
 
 check_registry_access
+bump_image_pins_from_release
 echo "Starting DeepSQL self-hosted stack with project '$PROJECT_NAME'..."
 pull_application_images
 compose up -d postgres valkey

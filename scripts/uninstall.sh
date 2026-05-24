@@ -56,18 +56,18 @@ compose() {
     "$@"
 }
 
+INSTALL_DIR="${DEEPSQL_INSTALL_DIR:-$HOME/.deepsql}"
+
 if [[ "$PURGE_DATA" == "true" ]]; then
   compose down --remove-orphans --volumes
   echo "DeepSQL self-hosted stack removed, including persisted Postgres / Valkey volumes."
+  if [[ -d "$INSTALL_DIR" ]]; then
+    rm -rf "$INSTALL_DIR"
+    echo "Removed install directory: $INSTALL_DIR"
+  fi
 else
   compose down --remove-orphans
-  echo "DeepSQL self-hosted stack stopped and removed. Data volumes were PRESERVED (--keep-data)."
-  echo "Re-installing on top of these volumes will fail with credential/decrypt errors."
-  echo "If you re-install, run this script again without --keep-data first to clear them."
-fi
-
-INSTALL_DIR="${DEEPSQL_INSTALL_DIR:-$HOME/.deepsql}"
-if [[ -d "$INSTALL_DIR" ]]; then
-  rm -rf "$INSTALL_DIR"
-  echo "Removed install directory: $INSTALL_DIR"
+  echo "DeepSQL self-hosted stack stopped. Data volumes AND install directory"
+  echo "preserved (--keep-data). Re-running install.sh will upgrade in place"
+  echo "using the existing .env (secrets + admin credentials stay intact)."
 fi
