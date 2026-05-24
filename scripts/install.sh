@@ -545,6 +545,25 @@ prompt_llm_credentials() {
   fi
 }
 
+# Optional — labels this install in DeepSQL analytics and support views.
+# If blank the backend derives company_name from the admin email domain
+# (skipping freemail providers like gmail/yahoo), then falls back to
+# the sentinel "unknown". Operators can edit the value in .env later
+# and restart to update — but it's immutable in the backend's identity
+# row, so a manual UPDATE is needed for an already-bootstrapped install.
+prompt_optional_company_name() {
+  local current="${DEEPSQL_COMPANY_NAME:-}"
+  # Skip prompt if already provided non-interactively.
+  if [[ -n "$current" ]]; then
+    return 0
+  fi
+  local value
+  value="$(read_tty 'Company / organization name (optional, press Enter to skip): ')"
+  if [[ -n "$value" ]]; then
+    set_env_value DEEPSQL_COMPANY_NAME "$value"
+  fi
+}
+
 check_registry_access() {
   if [[ "${DEEPSQL_SKIP_IMAGE_PULL:-false}" == "true" ]]; then
     return 0
@@ -884,6 +903,8 @@ prompt_llm_credentials
 if [[ "$CREATED_ENV" == "true" || "${SECURITY_ADMIN_BOOTSTRAP_ENABLED:-false}" == "true" ]]; then
   prompt_initial_admin_credentials
 fi
+
+prompt_optional_company_name
 
 : "${SPRING_PROFILES_ACTIVE:=prod}"
 : "${DEEPSQL_FRONTEND_PORT:=3035}"
