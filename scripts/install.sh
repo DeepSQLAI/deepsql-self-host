@@ -553,8 +553,13 @@ prompt_llm_credentials() {
 # row, so a manual UPDATE is needed for an already-bootstrapped install.
 prompt_optional_company_name() {
   local current="${DEEPSQL_COMPANY_NAME:-}"
-  # Skip prompt if already provided non-interactively.
+  # If already provided non-interactively (env var, CFN, CI), persist it to
+  # .env so compose passes it through to the backend container. Without this
+  # the shell env never reaches the container — backend silently falls back
+  # to the email-domain derivation, which is rarely what a non-interactive
+  # operator intended.
   if [[ -n "$current" ]]; then
+    set_env_value DEEPSQL_COMPANY_NAME "$current"
     return 0
   fi
   local value
