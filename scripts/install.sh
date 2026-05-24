@@ -559,10 +559,11 @@ prompt_optional_company_name() {
     set_env_value DEEPSQL_COMPANY_NAME "$current"
     return 0
   fi
-  # Optional + non-interactive-safe: skip prompt if no TTY (e.g. `curl | bash`).
-  # Backend's email-domain fallback then derives company_name automatically;
-  # operator can override later by editing .env and restarting.
-  if [[ ! -r /dev/tty ]]; then
+  # Optional + non-interactive-safe: skip prompt if no usable TTY (e.g. when
+  # invoked via `curl | bash`). Use the same check read_tty itself uses so
+  # behaviour stays consistent. Backend's email-domain fallback then derives
+  # company_name automatically; operator can override later by editing .env.
+  if ! has_tty; then
     return 0
   fi
   local value
