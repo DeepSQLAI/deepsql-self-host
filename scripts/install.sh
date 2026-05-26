@@ -725,15 +725,75 @@ bump_image_pins_from_release() {
   # commented-out in older releases (so existing installs predate the line)
   # and are now uncommented as a default. Skips if the .env line is present
   # and non-empty so we never clobber customer overrides.
-  for var in DEEPSQL_TELEMETRY_POSTHOG_PROJECT_KEY; do
+  for var in DEEPSQL_TELEMETRY_POSTHOG_PROJECT_KEY DEEPSQL_RELEASE; do
     current="$(grep -E "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
     target="$(grep -E "^${var}=" "$ROOT_DIR/.env.example" | head -1 | cut -d= -f2-)"
     if [[ -z "$current" && -n "$target" ]]; then
-      echo "▸ Enabling ${var} from release default (set DO_NOT_TRACK=1 to opt out)"
+      echo "▸ Promoting ${var} from release default"
       set_env_value "$var" "$target"
     fi
   done
 }
+
+# Detect deepsql containers running under a project name OTHER than the
+# install.sh-managed one. Happens when something (manual `docker compose up`,
+# a debugging session, an old install.sh that used a different default)
+# created a parallel stack that holds host port bindings — the new stack
+# then fails with "port already allocated" on `compose up`. We never
+# auto-stop or auto-delete: just surface clearly so the operator can decide.
+check_for_stale_project_stacks() {
+  local stale
+  stale="$(docker ps -a \
+    --filter "label=com.docker.compose.service" \
+    --format '{{.Names}}\t{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+    | awk -v keep="$PROJECT_NAME" -F'\t' '
+        $1 ~ /backend|frontend|postgres|valkey/ && $2 != keep && $2 != "" {
+          seen[$2] = seen[$2] (seen[$2] ? "," : "") $1
+        }
+        END { for (p in seen) printf "%s\t%s\n", p, seen[p] }
+      ')"
+  if [[ -z "$stale" ]]; then
+    return 0
+  fi
+  echo
+  echo "⚠️  Found containers from a different Compose project name —"
+  echo "    they may hold host port bindings the new stack needs."
+  while IFS=$'\t' read -r project names; do
+    echo "    project='${project}'  containers: ${names}"
+  done <<< "$stale"
+  echo
+  echo "    To clean them up manually (data volumes preserved):"
+  while IFS=$'\t' read -r project _; do
+    echo "      docker compose -p '${project}' down --remove-orphans"
+  done <<< "$stale"
+  echo
+  echo "    Continuing — \`compose up\` will fail if ports collide."
+  echo
+}
+
+# Print a clear final status if install.sh exits non-zero AFTER we already
+# bumped image pins or promoted telemetry defaults. Without this, a customer
+# whose post-pin step fails (transient network blip on docker pull, health
+# probe timeout, etc.) is left with mismatched .env vs running containers
+# and no clear signal that the upgrade was partial.
+_INSTALL_PROGRESS="pre-bump"
+on_install_exit() {
+  local code=$?
+  if [[ $code -ne 0 && "$_INSTALL_PROGRESS" == "post-bump" ]]; then
+    echo
+    echo "❌ Upgrade exited with code ${code} AFTER .env image pins were bumped."
+    echo "   .env now references the new images but containers may not have"
+    echo "   been restarted. Recover with:"
+    echo
+    echo "     cd '$ROOT_DIR' && docker compose --project-name '$PROJECT_NAME' \\"
+    echo "       --env-file '$ENV_FILE' up -d"
+    echo
+    echo "   Or re-run \`curl -fsSL https://install.deepsql.ai/install.sh | bash\`."
+    echo
+  fi
+  exit $code
+}
+trap on_install_exit EXIT
 
 pull_application_images() {
   if [[ "${DEEPSQL_SKIP_IMAGE_PULL:-false}" == "true" ]]; then
@@ -987,7 +1047,9 @@ if [[ "${VECTOR_STORE_TYPE:-pgvector}" == "azure" || "${AZURE_SEARCH_ENABLED:-fa
 fi
 
 check_registry_access
+check_for_stale_project_stacks
 bump_image_pins_from_release
+_INSTALL_PROGRESS="post-bump"
 echo "Starting DeepSQL self-hosted stack with project '$PROJECT_NAME'..."
 pull_application_images
 compose up -d postgres valkey
