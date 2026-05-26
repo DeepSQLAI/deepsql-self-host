@@ -719,6 +719,20 @@ bump_image_pins_from_release() {
       set_env_value "$var" "$target"
     fi
   done
+
+  # Promote new DeepSQL-managed defaults from .env.example only when the
+  # customer hasn't already set their own value. Used for keys that were
+  # commented-out in older releases (so existing installs predate the line)
+  # and are now uncommented as a default. Skips if the .env line is present
+  # and non-empty so we never clobber customer overrides.
+  for var in DEEPSQL_TELEMETRY_POSTHOG_PROJECT_KEY; do
+    current="$(grep -E "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
+    target="$(grep -E "^${var}=" "$ROOT_DIR/.env.example" | head -1 | cut -d= -f2-)"
+    if [[ -z "$current" && -n "$target" ]]; then
+      echo "▸ Enabling ${var} from release default (set DO_NOT_TRACK=1 to opt out)"
+      set_env_value "$var" "$target"
+    fi
+  done
 }
 
 pull_application_images() {
