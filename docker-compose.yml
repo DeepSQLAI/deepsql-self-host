@@ -115,6 +115,15 @@ services:
       - "${DEEPSQL_FRONTEND_PORT:-3035}:80"
 
 volumes:
+  # Absolute volume names (not prefixed with the Compose project name) so
+  # customer data survives accidental or intentional project-name drift on
+  # upgrade. Without this, switching project name silently spawns fresh
+  # empty volumes alongside the original ones — at best the operator is
+  # confused, at worst they take a "data-loss" recovery path that's
+  # entirely unnecessary.
   dba-agent-postgres:
+    name: dba-agent-postgres
   dba-agent-valkey:
+    name: dba-agent-valkey
   dba-agent-logs:
+    name: dba-agent-logs

@@ -775,6 +775,52 @@ check_for_stale_project_stacks() {
   echo
 }
 
+# One-shot migration from Compose-prefixed volumes (legacy) to absolute
+# volume names (current). v1.3.3+ docker-compose.yml declares
+#   dba-agent-postgres / dba-agent-valkey / dba-agent-logs
+# as absolute volume names so customer data survives project-name drift.
+# Customers upgrading from <=1.3.2 have prefixed volumes like
+# deepsql-selfhost_dba-agent-postgres holding their real data, and an empty
+# new absolute volume would otherwise look like a fresh install. Copy the
+# contents over once (old volume is preserved read-only as a safety net).
+migrate_prefixed_volumes_if_needed() {
+  local logical_name source_volume size_kb
+  for logical_name in dba-agent-postgres dba-agent-valkey dba-agent-logs; do
+    # Skip if the absolute volume already exists — either we already
+    # migrated, or this is a fresh install.
+    if docker volume inspect "$logical_name" >/dev/null 2>&1; then
+      continue
+    fi
+    # Find any prefixed volume with the same logical name. Prefer the
+    # largest one (most data) when multiple exist.
+    source_volume="$(docker volume ls --format '{{.Name}}' \
+      | grep -E "_${logical_name}\$" \
+      | while read -r vol; do
+          size_kb="$(docker run --rm -v "${vol}:/v:ro" alpine du -sk /v 2>/dev/null | awk '{print $1}')"
+          printf '%s\t%s\n' "${size_kb:-0}" "$vol"
+        done \
+      | sort -rn | head -1 | cut -f2)"
+    if [[ -z "$source_volume" ]]; then
+      continue
+    fi
+    echo
+    echo "▸ Migrating volume data: ${source_volume} → ${logical_name}"
+    echo "  (old volume preserved untouched as a rollback safety net)"
+    docker volume create "$logical_name" >/dev/null
+    if ! docker run --rm \
+        -v "${source_volume}:/from:ro" \
+        -v "${logical_name}:/to" \
+        alpine sh -c 'cd /from && tar cf - . | (cd /to && tar xf -)' 2>&1; then
+      echo "  ❌ Volume copy failed. Aborting before \`compose up\` to avoid"
+      echo "     attaching an inconsistent volume. Remove the partial copy with:"
+      echo "       docker volume rm ${logical_name}"
+      echo "     The original ${source_volume} is intact."
+      exit 1
+    fi
+    echo "  ✓ ${logical_name} now mirrors ${source_volume}"
+  done
+}
+
 # If existing DeepSQL containers are running under a project name OTHER than
 # the install.sh default (deepsql-selfhost) — typically because some earlier
 # step or environment leaked DEEPSQL_PROJECT_NAME=<dirname> into the shell —
@@ -1085,6 +1131,7 @@ fi
 check_registry_access
 adopt_existing_project_name
 check_for_stale_project_stacks
+migrate_prefixed_volumes_if_needed
 bump_image_pins_from_release
 _INSTALL_PROGRESS="post-bump"
 echo "Starting DeepSQL self-hosted stack with project '$PROJECT_NAME'..."
