@@ -728,7 +728,11 @@ bump_image_pins_from_release() {
   for var in DEEPSQL_TELEMETRY_POSTHOG_PROJECT_KEY DEEPSQL_RELEASE; do
     current="$(grep -E "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
     target="$(grep -E "^${var}=" "$ROOT_DIR/.env.example" | head -1 | cut -d= -f2-)"
-    if [[ -z "$current" && -n "$target" ]]; then
+    if [[ -n "$current" ]]; then
+      echo "▸ ${var}: already set in .env, leaving alone"
+    elif [[ -z "$target" ]]; then
+      echo "▸ ${var}: not present in .env.example, nothing to promote"
+    else
       echo "▸ Promoting ${var} from release default"
       set_env_value "$var" "$target"
     fi
@@ -769,6 +773,38 @@ check_for_stale_project_stacks() {
   echo
   echo "    Continuing — \`compose up\` will fail if ports collide."
   echo
+}
+
+# If existing DeepSQL containers are running under a project name OTHER than
+# the install.sh default (deepsql-selfhost) — typically because some earlier
+# step or environment leaked DEEPSQL_PROJECT_NAME=<dirname> into the shell —
+# adopt that name for this run. Upgrading containers in place beats spawning
+# a parallel stack that fights for host ports.
+#
+# Heuristic: any compose project whose name contains "deepsql" or matches
+# the install dir basename, and which has at least one of our four services.
+# Print loudly so the operator sees what's happening.
+adopt_existing_project_name() {
+  local install_basename existing
+  install_basename="$(basename "$ROOT_DIR")"
+  existing="$(docker ps -a \
+    --filter "label=com.docker.compose.service" \
+    --format '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}' 2>/dev/null \
+    | awk -F'\t' -v inst="$install_basename" '
+        $2 ~ /^(backend|frontend|postgres|valkey)$/ &&
+        ($1 ~ /deepsql/ || $1 == inst) {
+          print $1
+        }
+      ' | sort -u | head -1)"
+  if [[ -z "$existing" || "$existing" == "$PROJECT_NAME" ]]; then
+    return 0
+  fi
+  echo
+  echo "▸ Existing DeepSQL stack found under Compose project '${existing}'"
+  echo "  (default would have been '${PROJECT_NAME}'). Adopting the existing"
+  echo "  name so this upgrade updates those containers in place."
+  echo
+  PROJECT_NAME="$existing"
 }
 
 # Print a clear final status if install.sh exits non-zero AFTER we already
@@ -1047,6 +1083,7 @@ if [[ "${VECTOR_STORE_TYPE:-pgvector}" == "azure" || "${AZURE_SEARCH_ENABLED:-fa
 fi
 
 check_registry_access
+adopt_existing_project_name
 check_for_stale_project_stacks
 bump_image_pins_from_release
 _INSTALL_PROGRESS="post-bump"
