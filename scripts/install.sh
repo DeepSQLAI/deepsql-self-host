@@ -713,14 +713,27 @@ bootstrap_admin() {
 # command upgrade — operators no longer have to manually sed their .env when
 # moving from v1.0.x → v1.2.x. Customer secrets, admin credentials, and
 # everything else in .env are left untouched.
+# Read the value of KEY=... from a file, returning empty (status 0) if the
+# key is absent. CRITICAL: this must never propagate grep's no-match exit (1).
+# Under `set -euo pipefail`, a bare `v="$(grep ... )"` that finds nothing
+# aborts the entire installer at the assignment. The keys we promote below are
+# by definition absent from the .env we promote INTO, so the naive form killed
+# the installer before it could do any promotion — silently, with no output.
+env_value_for() {
+  local key="$1" file="$2"
+  [[ -f "$file" ]] || { printf '%s' ""; return 0; }
+  # `|| true` neutralizes grep's exit 1; head/cut never fail on empty input.
+  grep -E "^${key}=" "$file" 2>/dev/null | head -1 | cut -d= -f2- || true
+}
+
 bump_image_pins_from_release() {
   if [[ ! -f "$ENV_FILE" || ! -f "$ROOT_DIR/.env.example" ]]; then
     return 0
   fi
   local var current target
   for var in DEEPSQL_BACKEND_IMAGE DEEPSQL_FRONTEND_IMAGE; do
-    current="$(grep -E "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
-    target="$(grep -E "^${var}=" "$ROOT_DIR/.env.example" | head -1 | cut -d= -f2-)"
+    current="$(env_value_for "$var" "$ENV_FILE")"
+    target="$(env_value_for "$var" "$ROOT_DIR/.env.example")"
     if [[ -n "$current" && -n "$target" && "$current" != "$target" ]]; then
       echo "▸ Upgrading ${var}: ${current} → ${target}"
       set_env_value "$var" "$target"
@@ -733,8 +746,8 @@ bump_image_pins_from_release() {
   # and are now uncommented as a default. Skips if the .env line is present
   # and non-empty so we never clobber customer overrides.
   for var in DEEPSQL_TELEMETRY_POSTHOG_PROJECT_KEY DEEPSQL_RELEASE; do
-    current="$(grep -E "^${var}=" "$ENV_FILE" | head -1 | cut -d= -f2-)"
-    target="$(grep -E "^${var}=" "$ROOT_DIR/.env.example" | head -1 | cut -d= -f2-)"
+    current="$(env_value_for "$var" "$ENV_FILE")"
+    target="$(env_value_for "$var" "$ROOT_DIR/.env.example")"
     if [[ -n "$current" ]]; then
       echo "▸ ${var}: already set in .env, leaving alone"
     elif [[ -z "$target" ]]; then
