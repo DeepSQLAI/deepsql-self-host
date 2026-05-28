@@ -11,7 +11,7 @@ if [[ -z "${HOME:-}" ]]; then
   export HOME
 fi
 
-# ── Bootstrap (curl | bash) ───────────────────────────────────────────────────
+# -- Bootstrap (curl | bash) ---------------------------------------------------
 # When piped from the internet BASH_SOURCE[0] is unset and docker-compose.yml
 # does not exist locally. Download the repo, install it, then re-exec.
 _bootstrap_if_remote() {
@@ -67,7 +67,7 @@ _bootstrap_if_remote() {
   exec "$install_dir/scripts/install.sh"
 }
 _bootstrap_if_remote
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -552,11 +552,11 @@ prompt_llm_credentials() {
   fi
 }
 
-# Optional — labels this install in DeepSQL analytics and support views.
+# Optional - labels this install in DeepSQL analytics and support views.
 # If blank the backend derives company_name from the admin email domain
 # (skipping freemail providers like gmail/yahoo), then falls back to
 # the sentinel "unknown". Operators can edit the value in .env later
-# and restart to update — but it's immutable in the backend's identity
+# and restart to update - but it's immutable in the backend's identity
 # row, so a manual UPDATE is needed for an already-bootstrapped install.
 prompt_optional_company_name() {
   local current="${DEEPSQL_COMPANY_NAME:-}"
@@ -709,16 +709,16 @@ bootstrap_admin() {
 }
 
 # Auto-bump the image-pin lines in .env to match whatever .env.example pins to
-# in the freshly-extracted release archive. Makes `curl … | bash` a single-
-# command upgrade — operators no longer have to manually sed their .env when
-# moving from v1.0.x → v1.2.x. Customer secrets, admin credentials, and
+# in the freshly-extracted release archive. Makes `curl ... | bash` a single-
+# command upgrade - operators no longer have to manually sed their .env when
+# moving from v1.0.x -> v1.2.x. Customer secrets, admin credentials, and
 # everything else in .env are left untouched.
 # Read the value of KEY=... from a file, returning empty (status 0) if the
 # key is absent. CRITICAL: this must never propagate grep's no-match exit (1).
 # Under `set -euo pipefail`, a bare `v="$(grep ... )"` that finds nothing
 # aborts the entire installer at the assignment. The keys we promote below are
 # by definition absent from the .env we promote INTO, so the naive form killed
-# the installer before it could do any promotion — silently, with no output.
+# the installer before it could do any promotion - silently, with no output.
 env_value_for() {
   local key="$1" file="$2"
   [[ -f "$file" ]] || { printf '%s' ""; return 0; }
@@ -735,7 +735,7 @@ bump_image_pins_from_release() {
     current="$(env_value_for "$var" "$ENV_FILE")"
     target="$(env_value_for "$var" "$ROOT_DIR/.env.example")"
     if [[ -n "$current" && -n "$target" && "$current" != "$target" ]]; then
-      echo "▸ Upgrading ${var}: ${current} → ${target}"
+      echo "> Upgrading ${var}: ${current} -> ${target}"
       set_env_value "$var" "$target"
     fi
   done
@@ -749,11 +749,11 @@ bump_image_pins_from_release() {
     current="$(env_value_for "$var" "$ENV_FILE")"
     target="$(env_value_for "$var" "$ROOT_DIR/.env.example")"
     if [[ -n "$current" ]]; then
-      echo "▸ ${var}: already set in .env, leaving alone"
+      echo "> ${var}: already set in .env, leaving alone"
     elif [[ -z "$target" ]]; then
-      echo "▸ ${var}: not present in .env.example, nothing to promote"
+      echo "> ${var}: not present in .env.example, nothing to promote"
     else
-      echo "▸ Promoting ${var} from release default"
+      echo "> Promoting ${var} from release default"
       set_env_value "$var" "$target"
     fi
   done
@@ -762,7 +762,7 @@ bump_image_pins_from_release() {
 # Detect deepsql containers running under a project name OTHER than the
 # install.sh-managed one. Happens when something (manual `docker compose up`,
 # a debugging session, an old install.sh that used a different default)
-# created a parallel stack that holds host port bindings — the new stack
+# created a parallel stack that holds host port bindings - the new stack
 # then fails with "port already allocated" on `compose up`. We never
 # auto-stop or auto-delete: just surface clearly so the operator can decide.
 check_for_stale_project_stacks() {
@@ -780,7 +780,7 @@ check_for_stale_project_stacks() {
     return 0
   fi
   echo
-  echo "⚠️  Found containers from a different Compose project name —"
+  echo "!!  Found containers from a different Compose project name -"
   echo "    they may hold host port bindings the new stack needs."
   while IFS=$'\t' read -r project names; do
     echo "    project='${project}'  containers: ${names}"
@@ -791,7 +791,7 @@ check_for_stale_project_stacks() {
     echo "      docker compose -p '${project}' down --remove-orphans"
   done <<< "$stale"
   echo
-  echo "    Continuing — \`compose up\` will fail if ports collide."
+  echo "    Continuing - \`compose up\` will fail if ports collide."
   echo
 }
 
@@ -804,7 +804,7 @@ check_for_stale_project_stacks() {
 # new absolute volume would otherwise look like a fresh install. Copy the
 # contents over once (old volume is preserved read-only as a safety net).
 migrate_prefixed_volumes_if_needed() {
-  # Only ever migrate from volumes belonging to THIS install — i.e. prefixed
+  # Only ever migrate from volumes belonging to THIS install - i.e. prefixed
   # with the canonical project name or with this install dir's basename (the
   # only two names that have ever been used for our stack). A broad
   # "*_dba-agent-postgres" search is dangerous: it can grab an unrelated
@@ -813,7 +813,7 @@ migrate_prefixed_volumes_if_needed() {
   local install_basename logical_name source_volume candidate
   install_basename="$(basename "$ROOT_DIR")"
   for logical_name in dba-agent-postgres dba-agent-valkey dba-agent-logs; do
-    # Skip if the absolute volume already exists — already migrated, or fresh.
+    # Skip if the absolute volume already exists - already migrated, or fresh.
     if docker volume inspect "$logical_name" >/dev/null 2>&1; then
       continue
     fi
@@ -829,20 +829,20 @@ migrate_prefixed_volumes_if_needed() {
       continue
     fi
     echo
-    echo "▸ Migrating volume data: ${source_volume} → ${logical_name}"
+    echo "> Migrating volume data: ${source_volume} -> ${logical_name}"
     echo "  (old volume preserved untouched as a rollback safety net)"
     docker volume create "$logical_name" >/dev/null
     if ! docker run --rm \
         -v "${source_volume}:/from:ro" \
         -v "${logical_name}:/to" \
         alpine sh -c 'cd /from && tar cf - . | (cd /to && tar xf -)' 2>&1; then
-      echo "  ❌ Volume copy failed. Aborting before \`compose up\` to avoid"
+      echo "  XX Volume copy failed. Aborting before \`compose up\` to avoid"
       echo "     attaching an inconsistent volume. Remove the partial copy with:"
       echo "       docker volume rm ${logical_name}"
       echo "     The original ${source_volume} is intact."
       exit 1
     fi
-    echo "  ✓ ${logical_name} now mirrors ${source_volume}"
+    echo "  OK ${logical_name} now mirrors ${source_volume}"
   done
 }
 
@@ -856,7 +856,7 @@ on_install_exit() {
   local code=$?
   if [[ $code -ne 0 && "$_INSTALL_PROGRESS" == "post-bump" ]]; then
     echo
-    echo "❌ Upgrade exited with code ${code} AFTER .env image pins were bumped."
+    echo "XX Upgrade exited with code ${code} AFTER .env image pins were bumped."
     echo "   .env now references the new images but containers may not have"
     echo "   been restarted. Recover with:"
     echo
@@ -909,7 +909,7 @@ auto_install_for_detected_agents() {
   # Headless path: detect which coding agents are installed on the host and
   # install the DeepSQL MCP config + DBA-consult skill for each. Used when
   # there's no TTY to drive the interactive picker (curl|bash from a script,
-  # CFN UserData with a developer host, etc.). Idempotent — does nothing for
+  # CFN UserData with a developer host, etc.). Idempotent - does nothing for
   # agents that aren't present.
   local installed=()
   [[ -f "$HOME/.claude.json" || -d "$HOME/.claude" ]] && installed+=("claude-code")
@@ -917,7 +917,7 @@ auto_install_for_detected_agents() {
   [[ -d "$HOME/.cursor" ]] && installed+=("cursor")
 
   if [[ ${#installed[@]} -eq 0 ]]; then
-    printf "  ${DIM}No coding agents detected on host — skipping MCP config + skill install.${RESET}\n"
+    printf "  ${DIM}No coding agents detected on host - skipping MCP config + skill install.${RESET}\n"
     printf "  ${DIM}After installing an agent, run: deepsql mcp config --install --for <agent> --force${RESET}\n"
     return 0
   fi
@@ -927,9 +927,9 @@ auto_install_for_detected_agents() {
   local agent
   for agent in "${installed[@]}"; do
     if deepsql mcp config --install --for "$agent" --force; then
-      echo "  ✓ $agent configured"
+      echo "  OK $agent configured"
     else
-      printf "  ${DIM}  $agent config failed — run manually: deepsql mcp config --install --for $agent --force${RESET}\n"
+      printf "  ${DIM}  $agent config failed - run manually: deepsql mcp config --install --for $agent --force${RESET}\n"
     fi
   done
 }
@@ -990,9 +990,9 @@ login_deepsql_cli() {
   # (run by Claude Code / Codex / Cursor) work without re-auth.
   #
   # Skipped quietly if admin creds aren't available in env (e.g. a re-run
-  # where the user already cleared them) — they can always re-run manually.
+  # where the user already cleared them) - they can always re-run manually.
   if [[ -z "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" || -z "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
-    printf "  ${DIM}Admin email/password not in env — skipping deepsql CLI login.${RESET}\n"
+    printf "  ${DIM}Admin email/password not in env - skipping deepsql CLI login.${RESET}\n"
     printf "  ${DIM}Run manually: deepsql login --password --email <admin-email> --url http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
     return 0
   fi
@@ -1007,18 +1007,18 @@ login_deepsql_cli() {
       --label "$label"; then
     echo "Logged in. CLI is ready for MCP use."
   else
-    printf "  ${DIM}deepsql login failed — re-run manually if needed.${RESET}\n"
+    printf "  ${DIM}deepsql login failed - re-run manually if needed.${RESET}\n"
     printf "  ${DIM}deepsql login --password --email ${DEEPSQL_INITIAL_ADMIN_EMAIL} --url http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
   fi
 }
 
 install_mcp_package() {
   if [[ "${DEEPSQL_SKIP_MCP:-false}" == "true" ]]; then
-    printf "  ${DIM}DEEPSQL_SKIP_MCP=true — skipping @deepsql/mcp install and agent config.${RESET}\n"
+    printf "  ${DIM}DEEPSQL_SKIP_MCP=true - skipping @deepsql/mcp install and agent config.${RESET}\n"
     return 0
   fi
   if ! command -v npm >/dev/null 2>&1; then
-    printf "  ${DIM}npm not found — skipping @deepsql/mcp install.${RESET}\n"
+    printf "  ${DIM}npm not found - skipping @deepsql/mcp install.${RESET}\n"
     printf "  ${DIM}Install Node.js and run: npm install -g @deepsql/mcp@latest${RESET}\n"
     return 0
   fi
@@ -1148,9 +1148,9 @@ DIM="\033[2m"
 RESET="\033[0m"
 
 printf "\n"
-printf "${BOLD}${GREEN}╔══════════════════════════════════════════════════╗${RESET}\n"
-printf "${BOLD}${GREEN}║        DeepSQL self-hosted stack is ready        ║${RESET}\n"
-printf "${BOLD}${GREEN}╚══════════════════════════════════════════════════╝${RESET}\n"
+printf "${BOLD}${GREEN}+==================================================+${RESET}\n"
+printf "${BOLD}${GREEN}|        DeepSQL self-hosted stack is ready        |${RESET}\n"
+printf "${BOLD}${GREEN}+==================================================+${RESET}\n"
 printf "\n"
 printf "${BOLD}  Access${RESET}\n"
 printf "  Frontend  ${CYAN}http://localhost:${DEEPSQL_FRONTEND_PORT}${RESET}\n"
