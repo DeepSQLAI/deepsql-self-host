@@ -73,7 +73,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="${DEEPSQL_COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
 ENV_FILE="${DEEPSQL_ENV_FILE:-$ROOT_DIR/.env}"
-PROJECT_NAME="${DEEPSQL_PROJECT_NAME:-deepsql-selfhost}"
+# Hardcoded, NOT read from the environment. A leaked DEEPSQL_PROJECT_NAME (or
+# anything that made Compose derive the name from the directory basename) was
+# the root cause of upgrade-time container/volume drift. The compose file now
+# also declares `name: deepsql-selfhost`, so this and that agree as a single
+# source of truth. To intentionally run a differently-named stack, pass
+# `--project-name` to docker compose directly; install.sh no longer offers it
+# as a tunable to avoid the footgun.
+PROJECT_NAME="deepsql-selfhost"
 CREATED_ENV=false
 DOCKER_CMD=(docker)
 PRESET_AZURE_OPENAI_KEY="${AZURE_OPENAI_KEY:-}"

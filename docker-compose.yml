@@ -10,6 +10,15 @@
 #       VECTOR_STORE_TYPE=pgvector
 #       AZURE_SEARCH_ENABLED=false
 
+# Pin the Compose project name in the file itself so EVERY `docker compose`
+# invocation — install.sh, manual debugging, cron, an AI agent on the VM —
+# resolves to the same project regardless of the working directory. Without
+# this, Compose falls back to the lowercased directory basename (e.g.
+# "self-host"), which silently spawns a parallel stack with its own empty
+# volumes on upgrade. An explicit `-p`/`--project-name` flag still overrides
+# this, but that now requires deliberate intent rather than an accident.
+name: deepsql-selfhost
+
 services:
 
   # ── Vault Database (PostgreSQL + pgvector) ──────────────────────────────────
