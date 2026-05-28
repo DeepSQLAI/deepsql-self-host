@@ -30,7 +30,13 @@
 #
 set -euo pipefail
 
-LEGACY_REF="${LEGACY_REF:-v1.3.1}"
+LEGACY_REF="${LEGACY_REF:-v1.3.1}"          # release whose compose STRUCTURE we seed
+                                            # (relative volumes, no top-level name:)
+# Image tag for the legacy .env. Decoupled from LEGACY_REF because the v1.3.1+
+# self-host releases shipped install.sh/compose changes only — the container
+# IMAGES were never re-tagged past 1.3.0. Pinning a nonexistent image tag would
+# make check_registry_access (which runs before the pin-bump) abort the upgrade.
+LEGACY_IMAGE_TAG="${LEGACY_IMAGE_TAG:-1.3.0}"
 UPGRADE_REF="${DEEPSQL_SELF_HOST_REF:-}"
 INSTALL_ONE_LINER="${INSTALL_ONE_LINER:-curl -fsSL https://install.deepsql.ai/install.sh | bash}"
 TEST_ROOT="${DEEPSQL_TEST_ROOT:-$(mktemp -d "${TMPDIR:-/tmp}/deepsql-drift.XXXXXX")}"
@@ -69,6 +75,28 @@ pg_query() {
   docker exec "$container" psql -U postgres -d dba_agent -tAc "$*"
 }
 
+# Portable bounded execution. GNU `timeout` is absent on stock macOS, present
+# as `gtimeout` via coreutils, and standard on Linux. If none exist, fall back
+# to a background-then-kill shim so the test runs anywhere.
+run_bounded() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+  else
+    "$@" &
+    local pid=$!
+    ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null ) &
+    local watcher=$!
+    disown "$watcher" 2>/dev/null || true   # suppress job-control "Terminated" noise
+    wait "$pid" 2>/dev/null
+    local rc=$?
+    kill -TERM "$watcher" 2>/dev/null || true
+    return $rc
+  fi
+}
+
 cleanup() {
   local code=$?
   if [[ "${KEEP:-0}" == "1" ]]; then
@@ -93,6 +121,34 @@ ok "Docker + Compose available"
 echo "  Sandbox: $TEST_ROOT"
 echo "  Legacy ref: $LEGACY_REF   Upgrade ref: ${UPGRADE_REF:-<latest release>}"
 
+# The test creates a real 'deepsql-selfhost' stack + absolute volumes. If those
+# already exist (a real install on this host, or leftovers from a prior run)
+# the test would either clobber real data or report a false PASS by inspecting
+# pre-existing artifacts. Refuse unless the operator opts in with FORCE=1.
+preexisting="$(docker ps -a --filter "label=com.docker.compose.project=${CANONICAL_PROJECT}" \
+  --format '{{.Names}}' 2>/dev/null | head -1)"
+preexisting_vol="$(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E "^${ABSOLUTE_PG_VOLUME}$" || true)"
+if [[ -n "$preexisting" || -n "$preexisting_vol" ]]; then
+  if [[ "${FORCE:-0}" != "1" ]]; then
+    echo
+    echo "Refusing to run: a '${CANONICAL_PROJECT}' stack or '${ABSOLUTE_PG_VOLUME}' volume"
+    echo "already exists on this host. Running would risk clobbering real data and"
+    echo "can produce false PASS results from pre-existing artifacts."
+    echo
+    echo "  Existing container: ${preexisting:-<none>}"
+    echo "  Existing volume:    ${preexisting_vol:-<none>}"
+    echo
+    echo "Run on a throwaway host, or remove those first, or re-run with FORCE=1"
+    echo "if you are certain they are disposable."
+    exit 2
+  fi
+  log "FORCE=1 — removing pre-existing canonical artifacts before test"
+  docker compose -p "$CANONICAL_PROJECT" down --remove-orphans >/dev/null 2>&1 || true
+  docker rm -f "$preexisting" >/dev/null 2>&1 || true
+  docker volume rm -f "$ABSOLUTE_PG_VOLUME" dba-agent-valkey dba-agent-logs >/dev/null 2>&1 || true
+fi
+ok "No conflicting '${CANONICAL_PROJECT}' stack present"
+
 log "Phase 1 - create legacy install drifted under project '$LEGACY_PROJECT'"
 mkdir -p "$INSTALL_DIR"
 curl -fsSL "https://github.com/DeepSQLAI/deepsql-self-host/archive/refs/tags/${LEGACY_REF}.tar.gz" \
@@ -108,8 +164,8 @@ fi
 ok "Legacy compose has no top-level name: (drift premise holds)"
 
 cat > "$INSTALL_DIR/.env" <<EOF
-DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-self-host-backend:${LEGACY_REF#v}
-DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-self-host-frontend:${LEGACY_REF#v}
+DEEPSQL_BACKEND_IMAGE=ghcr.io/deepsqlai/deepsql-self-host-backend:${LEGACY_IMAGE_TAG}
+DEEPSQL_FRONTEND_IMAGE=ghcr.io/deepsqlai/deepsql-self-host-frontend:${LEGACY_IMAGE_TAG}
 DEEPSQL_SKIP_IMAGE_PULL=false
 SECURITY_JWT_SECRET=drift-test-jwt-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ENCRYPTION_KEY=drift-test-encryption-key-bbbbbbbb
@@ -146,10 +202,12 @@ legacy_compose down >/dev/null 2>&1
 ok "Legacy stack stopped (volumes preserved) - mirrors the real pre-upgrade state"
 
 log "Phase 2 - upgrade in place with ${UPGRADE_REF:-latest} installer"
-upgrade_env=( "DEEPSQL_INSTALL_DIR=$INSTALL_DIR" )
-[[ -n "$UPGRADE_REF" ]] && upgrade_env+=( "DEEPSQL_SELF_HOST_REF=$UPGRADE_REF" )
+# DEEPSQL_INSTALL_DIR is already exported globally. Export the optional ref so
+# the installer's bootstrap picks it up; run_bounded is a shell function so we
+# call it directly (env(1) cannot invoke functions).
+[[ -n "$UPGRADE_REF" ]] && export DEEPSQL_SELF_HOST_REF="$UPGRADE_REF"
 set +e
-env "${upgrade_env[@]}" timeout 300 bash -c "$INSTALL_ONE_LINER" > "$TEST_ROOT/upgrade.log" 2>&1
+run_bounded 300 bash -c "$INSTALL_ONE_LINER" > "$TEST_ROOT/upgrade.log" 2>&1
 upgrade_code=$?
 set -e
 echo "  installer exit code: $upgrade_code (timeout/backend-unhealthy expected with dummy Azure creds)"
@@ -173,10 +231,10 @@ fi
 running_projects="$(docker ps -a --filter "label=com.docker.compose.service" \
   --format '{{.Label "com.docker.compose.project"}}' | sort -u | grep -E 'deepsql|self-host' || true)"
 echo "  Compose projects present: $(echo "$running_projects" | tr '\n' ' ')"
-if docker ps -a --format '{{.Names}}' | grep -q "^${CANONICAL_PROJECT}-postgres-1$"; then
-  ok "Containers use canonical project name: ${CANONICAL_PROJECT}-*"
+if docker ps --format '{{.Names}}' | grep -q "^${CANONICAL_PROJECT}-postgres-1$"; then
+  ok "Running container uses canonical project name: ${CANONICAL_PROJECT}-*"
 else
-  bad "No ${CANONICAL_PROJECT}-postgres-1 container - project name not canonical"
+  bad "No RUNNING ${CANONICAL_PROJECT}-postgres-1 - project name not canonical or stack not up"
 fi
 
 log "Waiting for upgraded postgres to be queryable"

@@ -791,22 +791,27 @@ check_for_stale_project_stacks() {
 # new absolute volume would otherwise look like a fresh install. Copy the
 # contents over once (old volume is preserved read-only as a safety net).
 migrate_prefixed_volumes_if_needed() {
-  local logical_name source_volume size_kb
+  # Only ever migrate from volumes belonging to THIS install — i.e. prefixed
+  # with the canonical project name or with this install dir's basename (the
+  # only two names that have ever been used for our stack). A broad
+  # "*_dba-agent-postgres" search is dangerous: it can grab an unrelated
+  # Compose project that happens to use the same logical volume name and copy
+  # the wrong stack's data into ours.
+  local install_basename logical_name source_volume candidate
+  install_basename="$(basename "$ROOT_DIR")"
   for logical_name in dba-agent-postgres dba-agent-valkey dba-agent-logs; do
-    # Skip if the absolute volume already exists — either we already
-    # migrated, or this is a fresh install.
+    # Skip if the absolute volume already exists — already migrated, or fresh.
     if docker volume inspect "$logical_name" >/dev/null 2>&1; then
       continue
     fi
-    # Find any prefixed volume with the same logical name. Prefer the
-    # largest one (most data) when multiple exist.
-    source_volume="$(docker volume ls --format '{{.Name}}' \
-      | grep -E "_${logical_name}\$" \
-      | while read -r vol; do
-          size_kb="$(docker run --rm -v "${vol}:/v:ro" alpine du -sk /v 2>/dev/null | awk '{print $1}')"
-          printf '%s\t%s\n' "${size_kb:-0}" "$vol"
-        done \
-      | sort -rn | head -1 | cut -f2)"
+    source_volume=""
+    for candidate in "${PROJECT_NAME}_${logical_name}" "${install_basename}_${logical_name}"; do
+      [[ "$candidate" == "${logical_name}" ]] && continue   # guard if basename were empty
+      if docker volume inspect "$candidate" >/dev/null 2>&1; then
+        source_volume="$candidate"
+        break
+      fi
+    done
     if [[ -z "$source_volume" ]]; then
       continue
     fi
@@ -826,38 +831,6 @@ migrate_prefixed_volumes_if_needed() {
     fi
     echo "  ✓ ${logical_name} now mirrors ${source_volume}"
   done
-}
-
-# If existing DeepSQL containers are running under a project name OTHER than
-# the install.sh default (deepsql-selfhost) — typically because some earlier
-# step or environment leaked DEEPSQL_PROJECT_NAME=<dirname> into the shell —
-# adopt that name for this run. Upgrading containers in place beats spawning
-# a parallel stack that fights for host ports.
-#
-# Heuristic: any compose project whose name contains "deepsql" or matches
-# the install dir basename, and which has at least one of our four services.
-# Print loudly so the operator sees what's happening.
-adopt_existing_project_name() {
-  local install_basename existing
-  install_basename="$(basename "$ROOT_DIR")"
-  existing="$(docker ps -a \
-    --filter "label=com.docker.compose.service" \
-    --format '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}' 2>/dev/null \
-    | awk -F'\t' -v inst="$install_basename" '
-        $2 ~ /^(backend|frontend|postgres|valkey)$/ &&
-        ($1 ~ /deepsql/ || $1 == inst) {
-          print $1
-        }
-      ' | sort -u | head -1)"
-  if [[ -z "$existing" || "$existing" == "$PROJECT_NAME" ]]; then
-    return 0
-  fi
-  echo
-  echo "▸ Existing DeepSQL stack found under Compose project '${existing}'"
-  echo "  (default would have been '${PROJECT_NAME}'). Adopting the existing"
-  echo "  name so this upgrade updates those containers in place."
-  echo
-  PROJECT_NAME="$existing"
 }
 
 # Print a clear final status if install.sh exits non-zero AFTER we already
@@ -1136,7 +1109,6 @@ if [[ "${VECTOR_STORE_TYPE:-pgvector}" == "azure" || "${AZURE_SEARCH_ENABLED:-fa
 fi
 
 check_registry_access
-adopt_existing_project_name
 check_for_stale_project_stacks
 migrate_prefixed_volumes_if_needed
 bump_image_pins_from_release
