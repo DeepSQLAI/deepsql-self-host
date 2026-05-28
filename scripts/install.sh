@@ -51,6 +51,15 @@ _bootstrap_if_remote() {
 
   echo "Downloading DeepSQL self-host package from $archive_url"
   curl -fsSL "$archive_url" -o "$tmp_dir/archive.tar.gz"
+  # Verify the gzip stream is intact before trusting anything inside it. A
+  # truncated download passes curl (it exits 0 on a short read of a 200) but
+  # produces a corrupt archive; catching it here turns a later cryptic bash
+  # crash into a clear, actionable message.
+  if ! gzip -t "$tmp_dir/archive.tar.gz" 2>/dev/null; then
+    echo "Error: downloaded archive is corrupt (failed gzip integrity check)." >&2
+    echo "This is usually a transient network issue. Please re-run the installer." >&2
+    exit 1
+  fi
   mkdir -p "$tmp_dir/extract" "$install_dir"
   tar -xzf "$tmp_dir/archive.tar.gz" -C "$tmp_dir/extract"
 
@@ -62,8 +71,23 @@ _bootstrap_if_remote() {
   fi
 
   echo "Installing DeepSQL self-host files into $install_dir"
-  (cd "$bundle_dir" && tar -cf - .) | (cd "$install_dir" && tar -xf -)
+  # Copy with cp -R rather than a `tar -cf - | tar -xf -` pipe. The pipe can
+  # silently truncate the destination if the read side dies (SIGPIPE) on a
+  # constrained host, yielding a half-written install.sh that bash then
+  # exec's and crashes on (the `xrealloc: cannot allocate ...` failure mode).
+  cp -R "$bundle_dir/." "$install_dir/"
   chmod +x "$install_dir/scripts/"*.sh
+
+  # Final guard: never exec a script we cannot parse. If the on-disk install.sh
+  # is somehow corrupt (partial write, bad filesystem, truncated copy), fail
+  # loudly with guidance instead of exec'ing garbage and emitting an opaque
+  # bash allocator error.
+  if ! bash -n "$install_dir/scripts/install.sh" 2>/dev/null; then
+    echo "Error: installed script failed an integrity (syntax) check at" >&2
+    echo "  $install_dir/scripts/install.sh" >&2
+    echo "The copy may be corrupt. Remove $install_dir and re-run the installer." >&2
+    exit 1
+  fi
   exec "$install_dir/scripts/install.sh"
 }
 _bootstrap_if_remote
