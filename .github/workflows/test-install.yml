@@ -15,6 +15,7 @@ on:
       - 'scripts/status.sh'
       - 'scripts/smoke-test.sh'
       - 'scripts/test-stale-stack-reclaim.sh'
+      - 'scripts/test-volume-fork-detection.sh'
       - 'docker-compose.yml'
       - 'docker/**'
       - '.env.example'
@@ -27,6 +28,7 @@ on:
       - 'scripts/status.sh'
       - 'scripts/smoke-test.sh'
       - 'scripts/test-stale-stack-reclaim.sh'
+      - 'scripts/test-volume-fork-detection.sh'
       - 'docker-compose.yml'
       - 'docker/**'
       - '.env.example'
@@ -54,6 +56,9 @@ jobs:
 
       - name: Stale-stack reclaim is scoped + volume-safe
         run: ./scripts/test-stale-stack-reclaim.sh
+
+      - name: Volume migration never silently discards a fork
+        run: ./scripts/test-volume-fork-detection.sh
 
   install-and-verify:
     name: Install + verify on ${{ matrix.runner }}

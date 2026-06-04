@@ -894,6 +894,71 @@ volume_has_data() {
   [[ -n "$content" ]]
 }
 
+# Is this logical volume irreplaceable user data (vs. reconstructable cache or
+# logs)? Only the Postgres volume holds the relational database - user config,
+# slow-log sources, everything. A fork there is fatal; cache/log forks are not.
+is_precious_volume() { [[ "$1" == "dba-agent-postgres" ]]; }
+
+# Human-readable size of a named volume (read-only mount; never alters it).
+volume_size_human() {
+  docker run --rm -v "${1}:/v:ro" alpine sh -c 'du -sh /v 2>/dev/null | cut -f1' 2>/dev/null || echo "?"
+}
+
+# Classify the legacy migration source for one logical volume. Emits one of:
+#   none\t                 - no populated legacy candidate
+#   single\t<volume>       - exactly one populated candidate, OR an explicit
+#                            override via DEEPSQL_VOLUME_SOURCE_<logical>
+#   fork\t<v1>,<v2>,...     - TWO OR MORE populated candidates. Ambiguous: the
+#                            caller must NOT auto-pick. You cannot merge two
+#                            Postgres clusters, so silently choosing one drops
+#                            the other - the exact data-loss this guards against
+#                            (a client lost slow_log_source_config this way when
+#                            both deepsql-selfhost_* and self-host_* were full).
+#   badoverride\t<volume>  - an override was set but names a missing/empty vol
+# Candidates: the canonical project name, this install dir's basename, and any
+# project reclaim_stale_project_stacks() stopped (RECLAIMED_PROJECTS) - the only
+# names our own stack could have produced.
+classify_migration_source() {
+  local logical_name="$1"
+  local install_basename override_var override
+  install_basename="$(basename "$ROOT_DIR")"
+
+  # Explicit operator override resolves a fork deterministically.
+  override_var="DEEPSQL_VOLUME_SOURCE_${logical_name//-/_}"
+  override="${!override_var:-}"
+  if [[ -n "$override" ]]; then
+    if docker volume inspect "$override" >/dev/null 2>&1 && volume_has_data "$override"; then
+      printf 'single\t%s\n' "$override"
+    else
+      printf 'badoverride\t%s\n' "$override"
+    fi
+    return 0
+  fi
+
+  local -a prefixes=("$PROJECT_NAME" "$install_basename")
+  local rp
+  for rp in $RECLAIMED_PROJECTS; do
+    prefixes+=("$rp")
+  done
+
+  local -a populated=()
+  local candidate seen=""
+  for candidate in "${prefixes[@]/%/_${logical_name}}"; do
+    [[ "$candidate" == "${logical_name}" ]] && continue          # guard if a prefix were empty
+    case ",${seen}," in *",${candidate},"*) continue ;; esac     # dedup repeated prefixes
+    seen="${seen:+${seen},}${candidate}"
+    if docker volume inspect "$candidate" >/dev/null 2>&1 && volume_has_data "$candidate"; then
+      populated+=("$candidate")
+    fi
+  done
+
+  case ${#populated[@]} in
+    0) printf 'none\t\n' ;;
+    1) printf 'single\t%s\n' "${populated[0]}" ;;
+    *) local IFS=','; printf 'fork\t%s\n' "${populated[*]}" ;;
+  esac
+}
+
 # One-shot migration from Compose-prefixed volumes (legacy) to absolute
 # volume names (current). v1.3.3+ docker-compose.yml declares
 #   dba-agent-postgres / dba-agent-valkey / dba-agent-logs
@@ -909,61 +974,85 @@ migrate_prefixed_volumes_if_needed() {
   # "*_dba-agent-postgres" search is dangerous: it can grab an unrelated
   # Compose project that happens to use the same logical volume name and copy
   # the wrong stack's data into ours.
-  local install_basename logical_name source_volume candidate
-  install_basename="$(basename "$ROOT_DIR")"
+  local logical_name decision verdict source_volume v
   for logical_name in dba-agent-postgres dba-agent-valkey dba-agent-logs; do
     # Decide whether the absolute (destination) volume can receive data:
     #   exists + HAS DATA -> already migrated, or a real current install.
-    #                        Never clobber it. Skip.
+    #                        Never clobber it. But if populated LEGACY volumes
+    #                        also exist they were NOT merged in - surface them
+    #                        so an operator on an already-forked install isn't
+    #                        left thinking data vanished.
     #   exists + EMPTY    -> a stray/auto-created blank volume that would
-    #                        otherwise SHADOW legacy data and make the
-    #                        upgraded stack look like a fresh (empty) install.
-    #                        Safe to populate from the legacy source below.
+    #                        otherwise SHADOW legacy data and make the upgraded
+    #                        stack look like a fresh (empty) install. Drop it,
+    #                        then populate from the legacy source below.
     #   absent            -> create + populate.
-    # The original code skipped on mere existence, which silently stranded
-    # real data behind an empty absolute volume - exactly the "looks blank
-    # after upgrade" data-visibility scare this guards against.
     if docker volume inspect "$logical_name" >/dev/null 2>&1; then
       if volume_has_data "$logical_name"; then
+        decision="$(classify_migration_source "$logical_name")"
+        case "${decision%%$'\t'*}" in
+          single|fork)
+            echo
+            echo "!! ${logical_name} already has data and was kept as-is, but populated"
+            echo "   legacy volume(s) also exist and were NOT merged: ${decision#*$'\t'}"
+            echo "   Nothing was deleted. If data looks missing, inspect those volumes and"
+            echo "   copy what you need - Compose data dirs cannot be auto-merged."
+            ;;
+        esac
         continue
       fi
       echo
       echo "> Absolute volume ${logical_name} exists but is EMPTY - it would"
       echo "  otherwise shadow legacy data and look like a fresh install."
-      # Drop the empty volume so the fresh copy below is created clean. Without
-      # this, a blank volume left labelled for a prior Compose project makes
-      # `compose up` print a noisy "created for project X (expected Y)" warning
-      # on every run. Safe: volume_has_data() just confirmed it holds nothing.
+      # Drop the empty volume so the fresh copy below is created clean (avoids a
+      # noisy "created for project X (expected Y)" Compose warning). Safe:
+      # volume_has_data() just confirmed it holds nothing.
       docker volume rm "$logical_name" >/dev/null 2>&1 || true
     fi
-    # Candidate source prefixes, in priority order:
-    #   1. canonical project name and this install dir's basename - the names
-    #      our own installer could ever have produced.
-    #   2. any project reclaim_stale_project_stacks() just stopped - already
-    #      vetted as OUR stack (full service set on DeepSQL images), so its
-    #      prefixed volumes are our data and safe to carry forward. This is
-    #      what rescues a stack reclaimed under an arbitrary project name
-    #      (e.g. one set via an explicit `-p`/DEEPSQL_PROJECT_NAME) whose
-    #      prefix neither base name would match.
-    local -a candidate_prefixes=("$PROJECT_NAME" "$install_basename")
-    local rp
-    for rp in $RECLAIMED_PROJECTS; do
-      candidate_prefixes+=("$rp")
-    done
-    # Pick the FIRST candidate that actually HAS data. Requiring data avoids
-    # (a) selecting an empty prefixed volume as a bogus source and
-    # (b) pointless empty->empty copies for cache/log volumes.
-    source_volume=""
-    for candidate in "${candidate_prefixes[@]/%/_${logical_name}}"; do
-      [[ "$candidate" == "${logical_name}" ]] && continue   # guard if a prefix were empty
-      if docker volume inspect "$candidate" >/dev/null 2>&1 && volume_has_data "$candidate"; then
-        source_volume="$candidate"
-        break
-      fi
-    done
-    if [[ -z "$source_volume" ]]; then
+
+    decision="$(classify_migration_source "$logical_name")"
+    verdict="${decision%%$'\t'*}"
+    source_volume="${decision#*$'\t'}"
+
+    if [[ "$verdict" == "none" ]]; then
       continue
     fi
+
+    if [[ "$verdict" == "badoverride" ]]; then
+      echo >&2
+      echo "XX DEEPSQL_VOLUME_SOURCE_${logical_name//-/_} names '${source_volume}'," >&2
+      echo "   but that volume is missing or empty. Fix the override and re-run." >&2
+      exit 1
+    fi
+
+    if [[ "$verdict" == "fork" ]]; then
+      # TWO+ populated legacy volumes. We refuse to silently pick one and drop
+      # the rest - that is the data-loss a client hit. List them so the operator
+      # can choose.
+      echo >&2
+      echo "XX Found MULTIPLE populated legacy volumes for ${logical_name}:" >&2
+      # shellcheck disable=SC2086
+      for v in ${source_volume//,/ }; do
+        printf '      %-46s %s\n' "$v" "$(volume_size_human "$v")" >&2
+      done
+      if is_precious_volume "$logical_name"; then
+        echo "   Refusing to auto-pick one and discard the rest - that would lose data" >&2
+        echo "   (Postgres data dirs cannot be merged). Re-run with the authoritative" >&2
+        echo "   source pinned, e.g.:" >&2
+        echo >&2
+        echo "     DEEPSQL_VOLUME_SOURCE_${logical_name//-/_}='<chosen-volume>' \\" >&2
+        echo "       curl -fsSL https://install.deepsql.ai/install.sh | bash" >&2
+        echo >&2
+        echo "   No volume was modified or deleted." >&2
+        exit 1
+      fi
+      # Cache/log volume: a fork is low-stakes (reconstructable). Use the
+      # canonical-priority candidate (first listed) and continue.
+      source_volume="${source_volume%%,*}"
+      echo "   ${logical_name} is a cache/log volume; using ${source_volume} (low risk)." >&2
+    fi
+
+    # verdict is "single", or a resolved non-precious fork: copy the source.
     echo
     echo "> Migrating volume data: ${source_volume} -> ${logical_name}"
     echo "  (old volume preserved untouched as a rollback safety net)"
