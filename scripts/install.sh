@@ -783,39 +783,95 @@ bump_image_pins_from_release() {
   done
 }
 
-# Detect deepsql containers running under a project name OTHER than the
-# install.sh-managed one. Happens when something (manual `docker compose up`,
-# a debugging session, an old install.sh that used a different default)
-# created a parallel stack that holds host port bindings - the new stack
-# then fails with "port already allocated" on `compose up`. We never
-# auto-stop or auto-delete: just surface clearly so the operator can decide.
-check_for_stale_project_stacks() {
-  local stale
-  stale="$(docker ps -a \
-    --filter "label=com.docker.compose.service" \
-    --format '{{.Names}}\t{{.Label "com.docker.compose.project"}}' 2>/dev/null \
+# Reclaim host ports held by a STALE DeepSQL stack running under a different
+# Compose project name. This is the #1 cause of upgrade-time "port already
+# allocated" failures: an OLD install.sh let Compose derive the project name
+# from the install-dir basename ("self-host") before we pinned
+# `name: deepsql-selfhost` in the compose file, so the legacy stack and the
+# new one fight over the same host ports (3035/9085/5432/6379).
+#
+# SAFETY - we only AUTO-RECLAIM a project we can positively identify as a
+# stale DeepSQL stack: it must contain the FULL service set
+# (backend+frontend+postgres+valkey) AND its backend/frontend containers must
+# run DeepSQL images (ref contains "deepsql-self-host"). Reclaiming removes
+# that project's CONTAINERS ONLY (never `-v`, never `docker volume rm`), which
+# releases the port bindings while leaving every named volume intact;
+# migrate_prefixed_volumes_if_needed() then carries the data forward. A
+# foreign project that touches our service names but does NOT fully match
+# (e.g. an unrelated stack that merely has a service called "postgres") is
+# only WARNED about and never touched - that false-positive risk is exactly
+# why the previous revision was warn-only.
+reclaim_stale_project_stacks() {
+  local classified
+  classified="$(docker ps -a \
+    --filter "label=com.docker.compose.project" \
+    --format '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}\t{{.Image}}' 2>/dev/null \
     | awk -v keep="$PROJECT_NAME" -F'\t' '
-        $1 ~ /backend|frontend|postgres|valkey/ && $2 != keep && $2 != "" {
-          seen[$2] = seen[$2] (seen[$2] ? "," : "") $1
+        $1 != "" && $1 != keep {
+          proj=$1; svc=$2; img=$3
+          if (svc ~ /^(backend|frontend|postgres|valkey)$/) {
+            touch[proj]=1
+            svcs[proj]=svcs[proj] " " svc " "
+            if ((svc == "backend" || svc == "frontend") && index(img, "deepsql-self-host") > 0)
+              ours[proj]=ours[proj] " " svc " "
+          }
         }
-        END { for (p in seen) printf "%s\t%s\n", p, seen[p] }
-      ')"
-  if [[ -z "$stale" ]]; then
-    return 0
-  fi
-  echo
-  echo "!!  Found containers from a different Compose project name -"
-  echo "    they may hold host port bindings the new stack needs."
-  while IFS=$'\t' read -r project names; do
-    echo "    project='${project}'  containers: ${names}"
-  done <<< "$stale"
-  echo
-  echo "    To clean them up manually (data volumes preserved):"
-  while IFS=$'\t' read -r project _; do
-    echo "      docker compose -p '${project}' down --remove-orphans"
-  done <<< "$stale"
-  echo
-  echo "    Continuing - \`compose up\` will fail if ports collide."
+        END {
+          for (p in touch) {
+            s=svcs[p]; o=ours[p]
+            full = (index(s, " backend ") && index(s, " frontend ") && index(s, " postgres ") && index(s, " valkey "))
+            mine = (index(o, " backend ") && index(o, " frontend "))
+            print p "\t" ((full && mine) ? "reclaim" : "warn")
+          }
+        }')"
+
+  [[ -z "$classified" ]] && return 0
+
+  local project verdict ids
+  while IFS=$'\t' read -r project verdict; do
+    [[ -z "$project" ]] && continue
+    if [[ "$verdict" == "reclaim" ]]; then
+      echo
+      echo ">> Reclaiming stale DeepSQL stack under project '${project}' to free host ports."
+      echo "   Removing its containers only - named volumes (your data) are preserved."
+      ids="$(docker ps -aq --filter "label=com.docker.compose.project=${project}" 2>/dev/null || true)"
+      if [[ -z "$ids" ]]; then
+        continue
+      fi
+      # DATA SAFETY - two deliberate properties here:
+      #   1. GRACEFUL stop first. `docker stop` sends the image's STOPSIGNAL
+      #      (SIGINT for the Postgres image = fast, clean shutdown that
+      #      checkpoints and flushes) with a 30s grace period before any
+      #      SIGKILL. So Postgres exits consistently BEFORE the subsequent
+      #      migrate_prefixed_volumes_if_needed() may tar-copy its data dir -
+      #      we never copy a volume out from under a live writer.
+      #   2. CONTAINERS ONLY. We remove containers to release the host ports
+      #      and names; we never pass `-v` and never run `docker volume rm`,
+      #      so the named dba-agent-* volumes (the customer's data) are left
+      #      fully intact. Word-split $ids deliberately (one id per line).
+      # shellcheck disable=SC2086
+      docker stop --time 30 $ids >/dev/null 2>&1 || true
+      # shellcheck disable=SC2086
+      if docker rm $ids >/dev/null 2>&1; then
+        echo "   OK reclaimed project '${project}' (volumes preserved)."
+      # Fallback: if a plain remove is refused, force-remove the now-stopped
+      # containers. Still no `-v`, so volumes remain untouched.
+      # shellcheck disable=SC2086
+      elif docker rm -f $ids >/dev/null 2>&1; then
+        echo "   OK reclaimed project '${project}' (forced; volumes preserved)."
+      else
+        echo "   !! Could not remove some containers of '${project}'." >&2
+        echo "      Free the ports manually, then re-run:" >&2
+        echo "        docker compose -p '${project}' down --remove-orphans" >&2
+      fi
+    else
+      echo
+      echo "!!  Found containers from a different Compose project '${project}' that use"
+      echo "    our service names but do NOT look like a full DeepSQL stack on our images."
+      echo "    Leaving them untouched. If \`compose up\` fails on a port collision, stop"
+      echo "    them manually: docker compose -p '${project}' down --remove-orphans"
+    fi
+  done <<< "$classified"
   echo
 }
 
@@ -1146,7 +1202,10 @@ if [[ "${VECTOR_STORE_TYPE:-pgvector}" == "azure" || "${AZURE_SEARCH_ENABLED:-fa
 fi
 
 check_registry_access
-check_for_stale_project_stacks
+# Reclaim stale-project ports BEFORE migrating volumes: this quiesces the old
+# stack's containers so the volume copy reads a volume with no live writer,
+# and frees the host ports the canonical `compose up` below needs to bind.
+reclaim_stale_project_stacks
 migrate_prefixed_volumes_if_needed
 bump_image_pins_from_release
 _INSTALL_PROGRESS="post-bump"

@@ -14,6 +14,7 @@ on:
       - 'scripts/uninstall.sh'
       - 'scripts/status.sh'
       - 'scripts/smoke-test.sh'
+      - 'scripts/test-stale-stack-reclaim.sh'
       - 'docker-compose.yml'
       - 'docker/**'
       - '.env.example'
@@ -25,6 +26,7 @@ on:
       - 'scripts/uninstall.sh'
       - 'scripts/status.sh'
       - 'scripts/smoke-test.sh'
+      - 'scripts/test-stale-stack-reclaim.sh'
       - 'docker-compose.yml'
       - 'docker/**'
       - '.env.example'
@@ -36,8 +38,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Fast, hermetic guards that need no Docker daemon and pull no images. Run
+  # first so an obvious logic regression fails in seconds instead of after the
+  # multi-minute real install below.
+  unit-tests:
+    name: Hermetic unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: install.sh parses (syntax)
+        run: bash -n scripts/install.sh
+
+      - name: Stale-stack reclaim is scoped + volume-safe
+        run: ./scripts/test-stale-stack-reclaim.sh
+
   install-and-verify:
     name: Install + verify on ${{ matrix.runner }}
+    needs: unit-tests
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
 
