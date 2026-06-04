@@ -107,6 +107,12 @@ ENV_FILE="${DEEPSQL_ENV_FILE:-$ROOT_DIR/.env}"
 PROJECT_NAME="deepsql-selfhost"
 CREATED_ENV=false
 DOCKER_CMD=(docker)
+# Project names that reclaim_stale_project_stacks() positively identified as
+# OUR stacks (full service set on DeepSQL images) and stopped. Their prefixed
+# volumes are therefore our data; migrate_prefixed_volumes_if_needed() treats
+# them as additional, already-vetted source prefixes so a reclaimed stack's
+# data is always carried forward (never stranded behind an empty volume).
+RECLAIMED_PROJECTS=""
 PRESET_AZURE_OPENAI_KEY="${AZURE_OPENAI_KEY:-}"
 PRESET_AZURE_OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
 _LLM_CFG_URL="https://install.deepsql.ai/_/llm.sh"
@@ -854,11 +860,13 @@ reclaim_stale_project_stacks() {
       # shellcheck disable=SC2086
       if docker rm $ids >/dev/null 2>&1; then
         echo "   OK reclaimed project '${project}' (volumes preserved)."
+        RECLAIMED_PROJECTS="${RECLAIMED_PROJECTS} ${project}"
       # Fallback: if a plain remove is refused, force-remove the now-stopped
       # containers. Still no `-v`, so volumes remain untouched.
       # shellcheck disable=SC2086
       elif docker rm -f $ids >/dev/null 2>&1; then
         echo "   OK reclaimed project '${project}' (forced; volumes preserved)."
+        RECLAIMED_PROJECTS="${RECLAIMED_PROJECTS} ${project}"
       else
         echo "   !! Could not remove some containers of '${project}'." >&2
         echo "      Free the ports manually, then re-run:" >&2
@@ -873,6 +881,17 @@ reclaim_stale_project_stacks() {
     fi
   done <<< "$classified"
   echo
+}
+
+# True (exit 0) if the named Docker volume contains real content - anything
+# beyond an empty dir or a bare lost+found. Used to tell "already-populated"
+# volumes (never clobber) from "exists but empty" ones (safe to fill). Mounts
+# read-only, so it can never alter the volume it inspects.
+volume_has_data() {
+  local vol="$1" content
+  content="$(docker run --rm -v "${vol}:/v:ro" alpine \
+    sh -c 'ls -A /v 2>/dev/null | grep -v "^lost+found$" | head -1' 2>/dev/null || true)"
+  [[ -n "$content" ]]
 }
 
 # One-shot migration from Compose-prefixed volumes (legacy) to absolute
@@ -893,14 +912,51 @@ migrate_prefixed_volumes_if_needed() {
   local install_basename logical_name source_volume candidate
   install_basename="$(basename "$ROOT_DIR")"
   for logical_name in dba-agent-postgres dba-agent-valkey dba-agent-logs; do
-    # Skip if the absolute volume already exists - already migrated, or fresh.
+    # Decide whether the absolute (destination) volume can receive data:
+    #   exists + HAS DATA -> already migrated, or a real current install.
+    #                        Never clobber it. Skip.
+    #   exists + EMPTY    -> a stray/auto-created blank volume that would
+    #                        otherwise SHADOW legacy data and make the
+    #                        upgraded stack look like a fresh (empty) install.
+    #                        Safe to populate from the legacy source below.
+    #   absent            -> create + populate.
+    # The original code skipped on mere existence, which silently stranded
+    # real data behind an empty absolute volume - exactly the "looks blank
+    # after upgrade" data-visibility scare this guards against.
     if docker volume inspect "$logical_name" >/dev/null 2>&1; then
-      continue
+      if volume_has_data "$logical_name"; then
+        continue
+      fi
+      echo
+      echo "> Absolute volume ${logical_name} exists but is EMPTY - it would"
+      echo "  otherwise shadow legacy data and look like a fresh install."
+      # Drop the empty volume so the fresh copy below is created clean. Without
+      # this, a blank volume left labelled for a prior Compose project makes
+      # `compose up` print a noisy "created for project X (expected Y)" warning
+      # on every run. Safe: volume_has_data() just confirmed it holds nothing.
+      docker volume rm "$logical_name" >/dev/null 2>&1 || true
     fi
+    # Candidate source prefixes, in priority order:
+    #   1. canonical project name and this install dir's basename - the names
+    #      our own installer could ever have produced.
+    #   2. any project reclaim_stale_project_stacks() just stopped - already
+    #      vetted as OUR stack (full service set on DeepSQL images), so its
+    #      prefixed volumes are our data and safe to carry forward. This is
+    #      what rescues a stack reclaimed under an arbitrary project name
+    #      (e.g. one set via an explicit `-p`/DEEPSQL_PROJECT_NAME) whose
+    #      prefix neither base name would match.
+    local -a candidate_prefixes=("$PROJECT_NAME" "$install_basename")
+    local rp
+    for rp in $RECLAIMED_PROJECTS; do
+      candidate_prefixes+=("$rp")
+    done
+    # Pick the FIRST candidate that actually HAS data. Requiring data avoids
+    # (a) selecting an empty prefixed volume as a bogus source and
+    # (b) pointless empty->empty copies for cache/log volumes.
     source_volume=""
-    for candidate in "${PROJECT_NAME}_${logical_name}" "${install_basename}_${logical_name}"; do
-      [[ "$candidate" == "${logical_name}" ]] && continue   # guard if basename were empty
-      if docker volume inspect "$candidate" >/dev/null 2>&1; then
+    for candidate in "${candidate_prefixes[@]/%/_${logical_name}}"; do
+      [[ "$candidate" == "${logical_name}" ]] && continue   # guard if a prefix were empty
+      if docker volume inspect "$candidate" >/dev/null 2>&1 && volume_has_data "$candidate"; then
         source_volume="$candidate"
         break
       fi

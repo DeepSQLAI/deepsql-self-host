@@ -57,6 +57,7 @@ fi
 eval "$fn_src"
 
 PROJECT_NAME="deepsql-selfhost"   # the canonical name the function protects
+RECLAIMED_PROJECTS=""             # global the installer declares; reclaim appends to it
 
 # ---------------------------------------------------------------------------
 # Fake `docker`. Reads canned container inventory from $FAKE_DOCKER_PS
@@ -133,7 +134,10 @@ printf '%s\n' \
   > "$FAKE_DOCKER_PS"
 
 log "Running reclaim_stale_project_stacks() against the canned inventory"
-out="$(reclaim_stale_project_stacks 2>&1)"
+# Call in the CURRENT shell (output to a file, not a $(...) subshell) so the
+# RECLAIMED_PROJECTS global it sets is observable for assertion 7.
+reclaim_stale_project_stacks > "$WORK/out.txt" 2>&1 || true
+out="$(cat "$WORK/out.txt")"
 printf '%s\n' "$out" | sed 's/^/    /'
 calls="$(cat "$FAKE_DOCKER_CALLS")"
 
@@ -203,6 +207,14 @@ if grep -q "acme-db" <<< "$out"; then
   ok "Unrelated 'acme-db' surfaced as a warning"
 else
   bad "Unrelated 'acme-db' was not surfaced to the operator"
+fi
+
+# 7. The reclaimed project is handed to migrate (RECLAIMED_PROJECTS) so its
+# prefixed volumes are carried forward - and the unrelated project is NOT.
+if grep -qw "self-host" <<< "$RECLAIMED_PROJECTS" && ! grep -qw "acme-db" <<< "$RECLAIMED_PROJECTS"; then
+  ok "RECLAIMED_PROJECTS handoff = '${RECLAIMED_PROJECTS# }' (migrate will rescue its data)"
+else
+  bad "RECLAIMED_PROJECTS handoff wrong: '${RECLAIMED_PROJECTS}'"
 fi
 
 log "Summary"
