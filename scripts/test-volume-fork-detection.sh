@@ -45,7 +45,7 @@ trap cleanup EXIT
 extract_fn() {
   awk -v fn="$1" '$0 ~ "^"fn"\\(\\) \\{"{c=1} c{print} /^\}/{if(c)exit}' "$INSTALL_SH"
 }
-for fn in volume_has_data is_precious_volume volume_size_human classify_migration_source migrate_prefixed_volumes_if_needed; do
+for fn in volume_has_data is_precious_volume volume_size_human volume_pg_last_write classify_migration_source migrate_prefixed_volumes_if_needed; do
   src="$(extract_fn "$fn")"
   if [[ -z "$src" ]]; then
     echo "Could not find ${fn}() in $INSTALL_SH" >&2

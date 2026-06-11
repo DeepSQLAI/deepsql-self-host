@@ -756,18 +756,62 @@ env_value_for() {
   grep -E "^${key}=" "$file" 2>/dev/null | head -1 | cut -d= -f2- || true
 }
 
+# Compare two image refs by their trailing X.Y.Z tag. Echoes one of:
+#   up | down | same | unknown   (unknown = a non-semver tag on either side,
+# e.g. "latest" or a commit SHA, where direction can't be determined).
+# This exists because a release whose bundled .env.example LAGS the customer's
+# pin used to silently roll them BACKWARD — a stale 1.3.1 pin downgraded a
+# 1.3.4 install, logged misleadingly as "Upgrading".
+image_pin_direction() {
+  local cur_tag="${1##*:}" tgt_tag="${2##*:}"
+  local semver='^[0-9]+\.[0-9]+\.[0-9]+$'
+  if [[ ! "$cur_tag" =~ $semver || ! "$tgt_tag" =~ $semver ]]; then
+    printf 'unknown'; return 0
+  fi
+  [[ "$cur_tag" == "$tgt_tag" ]] && { printf 'same'; return 0; }
+  local lowest
+  lowest="$(printf '%s\n%s\n' "$cur_tag" "$tgt_tag" | sort -V | head -1)"
+  [[ "$lowest" == "$tgt_tag" ]] && printf 'down' || printf 'up'
+}
+
 bump_image_pins_from_release() {
   if [[ ! -f "$ENV_FILE" || ! -f "$ROOT_DIR/.env.example" ]]; then
     return 0
   fi
-  local var current target
+  local var current target direction
   for var in DEEPSQL_BACKEND_IMAGE DEEPSQL_FRONTEND_IMAGE; do
     current="$(env_value_for "$var" "$ENV_FILE")"
     target="$(env_value_for "$var" "$ROOT_DIR/.env.example")"
-    if [[ -n "$current" && -n "$target" && "$current" != "$target" ]]; then
-      echo "> Upgrading ${var}: ${current} -> ${target}"
-      set_env_value "$var" "$target"
-    fi
+    [[ -n "$current" && -n "$target" && "$current" != "$target" ]] || continue
+    direction="$(image_pin_direction "$current" "$target")"
+    case "$direction" in
+      down)
+        # Never move a customer backward by default — that is the silent
+        # downgrade the field report flagged. Keep their newer pin unless the
+        # operator explicitly opts in.
+        if [[ "${DEEPSQL_ALLOW_IMAGE_DOWNGRADE:-false}" == "true" ]]; then
+          echo "> WARNING: forcing DOWNGRADE ${var}: ${current} -> ${target}"
+          echo ">          (DEEPSQL_ALLOW_IMAGE_DOWNGRADE=true)"
+          set_env_value "$var" "$target"
+        else
+          echo "> WARNING: this release pins an OLDER image for ${var} than you run:"
+          echo ">              your pin: ${current}"
+          echo ">            release pin: ${target}"
+          echo ">          Keeping your newer pin to avoid a silent downgrade. To force"
+          echo ">          the downgrade, re-run with DEEPSQL_ALLOW_IMAGE_DOWNGRADE=true."
+        fi
+        ;;
+      up)
+        echo "> Upgrading ${var}: ${current} -> ${target}"
+        set_env_value "$var" "$target"
+        ;;
+      *)
+        # unknown direction (non-semver tag): preserve prior behavior, but use a
+        # neutral label rather than asserting "Upgrading".
+        echo "> Updating ${var}: ${current} -> ${target}"
+        set_env_value "$var" "$target"
+        ;;
+    esac
   done
 
   # Promote new DeepSQL-managed defaults from .env.example only when the
@@ -904,6 +948,17 @@ volume_size_human() {
   docker run --rm -v "${1}:/v:ro" alpine sh -c 'du -sh /v 2>/dev/null | cut -f1' 2>/dev/null || echo "?"
 }
 
+# Last write time of the Postgres control file inside a volume (read-only
+# mount). pg_control is rewritten on every checkpoint, so its mtime is the
+# clearest "which clone is live?" signal when disambiguating a fork — far more
+# reliable than size, since a stale clone can be larger. Empty if no pg_control
+# is found (e.g. a non-Postgres volume).
+volume_pg_last_write() {
+  docker run --rm -v "${1}:/v:ro" alpine sh -c \
+    'f="$(find /v -name pg_control -type f 2>/dev/null | head -1)"; [ -n "$f" ] && date -u -r "$f" "+%Y-%m-%d %H:%M UTC" 2>/dev/null || true' \
+    2>/dev/null || true
+}
+
 # Classify the legacy migration source for one logical volume. Emits one of:
 #   none\t                 - no populated legacy candidate
 #   single\t<volume>       - exactly one populated candidate, OR an explicit
@@ -1031,9 +1086,18 @@ migrate_prefixed_volumes_if_needed() {
       # can choose.
       echo >&2
       echo "XX Found MULTIPLE populated legacy volumes for ${logical_name}:" >&2
+      # For the Postgres volume, also show pg_control's last-write time so the
+      # operator can spot the LIVE clone at a glance (newest write = live),
+      # instead of guessing from size alone.
+      local lastw
       # shellcheck disable=SC2086
       for v in ${source_volume//,/ }; do
-        printf '      %-46s %s\n' "$v" "$(volume_size_human "$v")" >&2
+        if is_precious_volume "$logical_name"; then
+          lastw="$(volume_pg_last_write "$v")"
+          printf '      %-46s %6s   last write: %s\n' "$v" "$(volume_size_human "$v")" "${lastw:-unknown}" >&2
+        else
+          printf '      %-46s %6s\n' "$v" "$(volume_size_human "$v")" >&2
+        fi
       done
       if is_precious_volume "$logical_name"; then
         echo "   Refusing to auto-pick one and discard the rest - that would lose data" >&2
