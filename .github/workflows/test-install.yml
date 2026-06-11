@@ -16,6 +16,7 @@ on:
       - 'scripts/smoke-test.sh'
       - 'scripts/test-stale-stack-reclaim.sh'
       - 'scripts/test-volume-fork-detection.sh'
+      - 'scripts/test-image-pin-downgrade-guard.sh'
       - 'docker-compose.yml'
       - 'docker/**'
       - '.env.example'
@@ -29,6 +30,7 @@ on:
       - 'scripts/smoke-test.sh'
       - 'scripts/test-stale-stack-reclaim.sh'
       - 'scripts/test-volume-fork-detection.sh'
+      - 'scripts/test-image-pin-downgrade-guard.sh'
       - 'docker-compose.yml'
       - 'docker/**'
       - '.env.example'
@@ -59,6 +61,9 @@ jobs:
 
       - name: Volume migration never silently discards a fork
         run: ./scripts/test-volume-fork-detection.sh
+
+      - name: Image pin bump never silently downgrades
+        run: ./scripts/test-image-pin-downgrade-guard.sh
 
   install-and-verify:
     name: Install + verify on ${{ matrix.runner }}
