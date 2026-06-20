@@ -19,11 +19,11 @@ The CloudFormation template provisions everything needed to run DeepSQL on AWS:
   Click the button below in the AWS account where you want DeepSQL to run. You'll be taken straight to the CloudFormation review screen.
 </Aside>
 
-[**→ Launch Stack in us-east-1**](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateURL=https://install.deepsql.ai/cloudformation/deepsql-stack.yaml&stackName=deepsql-selfhost)
+[**→ Launch Stack in us-east-1**](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/quickcreate?templateURL=https://deepsql-cfn-461084093078-us-east-2.s3.us-east-2.amazonaws.com/deepsql-stack.yaml&stackName=deepsql-selfhost)
 
-To launch in a different region, change `region=us-east-1` to your region (e.g. `region=eu-west-1`).
+To launch in a different region, change `region=us-east-1` to your region (e.g. `region=eu-west-1`). The template is hosted in `us-east-2` but works for stacks in any region.
 
-Direct template URL: `https://install.deepsql.ai/cloudformation/deepsql-stack.yaml`
+Direct template URL: `https://deepsql-cfn-461084093078-us-east-2.s3.us-east-2.amazonaws.com/deepsql-stack.yaml`
 
 ## Parameters
 
