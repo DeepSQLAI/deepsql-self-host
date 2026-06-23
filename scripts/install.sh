@@ -1340,6 +1340,15 @@ export DEEPSQL_ENV_FILE="$ENV_FILE"
 export CORS_ALLOWED_ORIGINS
 export SPRING_AUTOCONFIGURE_EXCLUDE
 
+# Promote newly-introduced release defaults (e.g. a freshly-added
+# DEEPSQL_AGENT_IMAGE) and bump image pins from .env.example BEFORE the
+# required-var validation below — otherwise a brand-new required key that an
+# older install's .env predates fails validation before it can be promoted.
+# (Regression: pre-1.4.0 -> 1.4.0 upgrades aborted on DEEPSQL_AGENT_IMAGE.)
+# Re-load so the promoted/bumped values are visible to require_env_value.
+bump_image_pins_from_release
+load_env_file
+
 require_env_value DEEPSQL_BACKEND_IMAGE
 require_env_value DEEPSQL_FRONTEND_IMAGE
 require_env_value DEEPSQL_AGENT_IMAGE
@@ -1362,7 +1371,7 @@ check_registry_access
 # and frees the host ports the canonical `compose up` below needs to bind.
 reclaim_stale_project_stacks
 migrate_prefixed_volumes_if_needed
-bump_image_pins_from_release
+# bump_image_pins_from_release now runs earlier, before require_env_value (above).
 _INSTALL_PROGRESS="post-bump"
 echo "Starting DeepSQL self-hosted stack with project '$PROJECT_NAME'..."
 pull_application_images
