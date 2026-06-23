@@ -144,6 +144,7 @@ apply_preset_var() {
 for preset_name in \
   DEEPSQL_BACKEND_IMAGE \
   DEEPSQL_FRONTEND_IMAGE \
+  DEEPSQL_AGENT_IMAGE \
   DEEPSQL_SKIP_IMAGE_PULL \
   DEEPSQL_FRONTEND_PORT \
   DEEPSQL_BACKEND_PORT \
@@ -761,7 +762,7 @@ bump_image_pins_from_release() {
     return 0
   fi
   local var current target
-  for var in DEEPSQL_BACKEND_IMAGE DEEPSQL_FRONTEND_IMAGE; do
+  for var in DEEPSQL_BACKEND_IMAGE DEEPSQL_FRONTEND_IMAGE DEEPSQL_AGENT_IMAGE; do
     current="$(env_value_for "$var" "$ENV_FILE")"
     target="$(env_value_for "$var" "$ROOT_DIR/.env.example")"
     if [[ -n "$current" && -n "$target" && "$current" != "$target" ]]; then
@@ -775,7 +776,7 @@ bump_image_pins_from_release() {
   # commented-out in older releases (so existing installs predate the line)
   # and are now uncommented as a default. Skips if the .env line is present
   # and non-empty so we never clobber customer overrides.
-  for var in DEEPSQL_TELEMETRY_POSTHOG_PROJECT_KEY DEEPSQL_RELEASE; do
+  for var in DEEPSQL_TELEMETRY_POSTHOG_PROJECT_KEY DEEPSQL_RELEASE DEEPSQL_AGENT_IMAGE; do
     current="$(env_value_for "$var" "$ENV_FILE")"
     target="$(env_value_for "$var" "$ROOT_DIR/.env.example")"
     if [[ -n "$current" ]]; then
@@ -1099,12 +1100,13 @@ pull_application_images() {
   if [[ "${DEEPSQL_SKIP_IMAGE_PULL:-false}" == "true" ]]; then
     ensure_local_image "${DEEPSQL_BACKEND_IMAGE}"
     ensure_local_image "${DEEPSQL_FRONTEND_IMAGE}"
+    ensure_local_image "${DEEPSQL_AGENT_IMAGE}"
     echo "Skipping image pull because DEEPSQL_SKIP_IMAGE_PULL=true."
     return 0
   fi
 
   echo "Pulling DeepSQL application images..."
-  compose pull backend frontend
+  compose pull backend frontend deepsql-agent
 }
 
 load_remote_config() {
@@ -1280,6 +1282,7 @@ apply_preset_value DEEPSQL_INITIAL_ADMIN_PASSWORD "$PRESET_INITIAL_ADMIN_PASSWOR
 for preset_name in \
   DEEPSQL_BACKEND_IMAGE \
   DEEPSQL_FRONTEND_IMAGE \
+  DEEPSQL_AGENT_IMAGE \
   DEEPSQL_SKIP_IMAGE_PULL \
   DEEPSQL_FRONTEND_PORT \
   DEEPSQL_BACKEND_PORT \
@@ -1333,6 +1336,7 @@ export SPRING_AUTOCONFIGURE_EXCLUDE
 
 require_env_value DEEPSQL_BACKEND_IMAGE
 require_env_value DEEPSQL_FRONTEND_IMAGE
+require_env_value DEEPSQL_AGENT_IMAGE
 require_env_value SECURITY_JWT_SECRET
 require_env_value ENCRYPTION_KEY
 require_env_value ENCRYPTION_KEY_ID
@@ -1393,6 +1397,7 @@ fi
 printf "${BOLD}  Images${RESET}\n"
 printf "  Backend   ${DIM}${DEEPSQL_BACKEND_IMAGE}${RESET}\n"
 printf "  Frontend  ${DIM}${DEEPSQL_FRONTEND_IMAGE}${RESET}\n"
+printf "  Agent     ${DIM}${DEEPSQL_AGENT_IMAGE}${RESET}\n"
 printf "\n"
 printf "${BOLD}  Private access via AWS SSM (no open ports required)${RESET}\n"
 printf "  ${DIM}Run on your local machine, then open the Frontend URL above:${RESET}\n"
