@@ -1303,6 +1303,12 @@ generate_secret SECURITY_JWT_SECRET "openssl rand -base64 64 | tr -d '\n'"
 generate_secret ENCRYPTION_KEY "openssl rand -base64 32 | tr -d '\n'"
 generate_secret DB_PASSWORD "openssl rand -base64 16 | tr -d '\n'"
 generate_secret ADMIN_BOOTSTRAP_SECRET "openssl rand -base64 32 | tr -d '\n'"
+# Shared secret between the backend and the DeepSQL Agent. REQUIRED for the
+# agent to function: it gates the agent's per-user provisioner, which the
+# backend calls (on Agent-tab open / channel use) to mint a per-user MCP token
+# and provision that user's isolated Hermes profile. Without it the agent loads
+# but every deepsql tool call 401s (the profile carries no DeepSQL token).
+generate_secret AGENT_PROVISION_SECRET "openssl rand -base64 32 | tr -d '\n'"
 
 prompt_llm_credentials
 
