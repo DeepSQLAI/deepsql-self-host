@@ -106,6 +106,9 @@ ENV_FILE="${DEEPSQL_ENV_FILE:-$ROOT_DIR/.env}"
 # as a tunable to avoid the footgun.
 PROJECT_NAME="deepsql-selfhost"
 CREATED_ENV=false
+# Set to true by load_remote_config() when it injects DeepSQL's managed
+# (shared) Azure OpenAI key, so the final summary can print a privacy note.
+USED_MANAGED_LLM_KEY=false
 DOCKER_CMD=(docker)
 # Project names that reclaim_stale_project_stacks() positively identified as
 # OUR stacks (full service set on DeepSQL images) and stopped. Their prefixed
@@ -414,7 +417,10 @@ install_docker_macos() {
 
   if ! command -v brew >/dev/null 2>&1; then
     echo "Error: Docker Desktop auto-install on macOS requires Homebrew." >&2
-    echo "Install Docker Desktop from https://docs.docker.com/desktop/install/mac-install/ and rerun this script." >&2
+    echo "Options to get a Docker runtime, then rerun this script:" >&2
+    echo "  - Docker Desktop (GUI): https://docs.docker.com/desktop/install/mac-install/" >&2
+    echo "  - Colima (no GUI, no license): brew install colima docker docker-compose && colima start" >&2
+    echo "    (install Homebrew first from https://brew.sh)" >&2
     exit 1
   fi
 
@@ -478,6 +484,66 @@ ensure_docker_available() {
   echo "Error: Docker is installed but the daemon is not reachable by this user." >&2
   echo "Start Docker or add this user to the docker group, then rerun this script." >&2
   exit 1
+}
+
+ensure_compose_available() {
+  # This installer drives Compose v2 via the `docker compose` subcommand
+  # (see compose()). The legacy standalone `docker-compose` (v1) binary is a
+  # different tool and is NOT supported. A bare "is required" error here is a
+  # dead-end for someone who has v1 installed, so we try to self-heal on Linux
+  # and otherwise print exact, copy-pasteable install steps.
+  if run_docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [[ "$(uname -s)" == "Linux" ]]; then
+    echo "Docker Compose v2 plugin not found - attempting to install it..."
+    local sudo_cmd=""
+    if [[ "${EUID:-$(id -u)}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+      sudo_cmd="sudo"
+    fi
+    install_docker_compose_plugin "$sudo_cmd" || true
+    if run_docker compose version >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+
+  echo "Error: the Docker Compose v2 plugin ('docker compose') is required but not available." >&2
+  echo >&2
+  if command -v docker-compose >/dev/null 2>&1; then
+    echo "Note: you have the legacy standalone 'docker-compose' (v1), which this" >&2
+    echo "installer does NOT use. You need the v2 plugin invoked as 'docker compose'." >&2
+    echo >&2
+  fi
+  case "$(uname -s)" in
+    Darwin)
+      echo "Fix: install/upgrade Docker Desktop (it bundles Compose v2):" >&2
+      echo "  https://docs.docker.com/desktop/install/mac-install/" >&2
+      echo "Or with Colima: brew install docker-compose && colima start" >&2
+      ;;
+    Linux)
+      echo "Fix: install the Compose v2 plugin into your user plugin dir:" >&2
+      echo "  mkdir -p ~/.docker/cli-plugins" >&2
+      echo "  curl -fsSL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-\$(uname -m) \\" >&2
+      echo "    -o ~/.docker/cli-plugins/docker-compose && chmod +x ~/.docker/cli-plugins/docker-compose" >&2
+      echo "Docs: https://docs.docker.com/compose/install/linux/" >&2
+      ;;
+    *)
+      echo "Fix: install the Docker Compose v2 plugin. Docs: https://docs.docker.com/compose/install/" >&2
+      ;;
+  esac
+  exit 1
+}
+
+# Validate non-interactive inputs (env / .env / CFN / CI) BEFORE the heavy
+# Docker install and image-pull steps, so a bad value fails fast instead of
+# "mid-install" after Docker Desktop has already been installed and started.
+# Interactive entry is validated at the prompt itself (prompt_initial_admin_*).
+preflight_validate_inputs() {
+  local pw="${PRESET_INITIAL_ADMIN_PASSWORD:-}"
+  if ! is_placeholder "$pw"; then
+    validate_initial_admin_password "$pw"
+  fi
 }
 
 set_env_value() {
@@ -1125,6 +1191,7 @@ load_remote_config() {
   if [[ -n "$key" ]] && is_placeholder "${AZURE_OPENAI_KEY:-}"; then
     export AZURE_OPENAI_KEY="$key"
     PRESET_AZURE_OPENAI_KEY="$key"
+    USED_MANAGED_LLM_KEY=true
   fi
   if [[ -n "$endpoint" ]] && is_placeholder "${AZURE_OPENAI_ENDPOINT:-}"; then
     export AZURE_OPENAI_ENDPOINT="$endpoint"
@@ -1257,13 +1324,10 @@ install_mcp_package() {
   configure_mcp_agents
 }
 
+preflight_validate_inputs
 ensure_prerequisites
 ensure_docker_available
-
-run_docker compose version >/dev/null 2>&1 || {
-  echo "Error: docker compose is required." >&2
-  exit 1
-}
+ensure_compose_available
 
 if [[ ! -f "$ENV_FILE" ]]; then
   cp "$ROOT_DIR/.env.example" "$ENV_FILE"
@@ -1423,6 +1487,19 @@ printf "  ${CYAN}  --target <instance-id> \\\\${RESET}\n"
 printf "  ${CYAN}  --document-name AWS-StartPortForwardingSession \\\\${RESET}\n"
 printf "  ${CYAN}  --parameters portNumber=${DEEPSQL_FRONTEND_PORT},localPortNumber=${DEEPSQL_FRONTEND_PORT}${RESET}\n"
 printf "\n"
+printf "${BOLD}  Next steps${RESET}\n"
+printf "  ${DIM}Diagnostics (index suggestions, anti-patterns, digest) accumulate on a${RESET}\n"
+printf "  ${DIM}schedule and are empty right after install. To see results immediately${RESET}\n"
+printf "  ${DIM}once you've connected a database, run: ${RESET}${CYAN}deepsql indexes refresh${RESET}\n"
+printf "\n"
+if [[ "${USED_MANAGED_LLM_KEY}" == "true" ]]; then
+  printf "${BOLD}  LLM privacy${RESET}\n"
+  printf "  ${DIM}This install is using DeepSQL's shared managed Azure OpenAI key, so your${RESET}\n"
+  printf "  ${DIM}schema and queries are processed through DeepSQL's shared LLM resource.${RESET}\n"
+  printf "  ${DIM}To use your own key: set AZURE_OPENAI_KEY and AZURE_OPENAI_ENDPOINT in${RESET}\n"
+  printf "  ${DIM}${ENV_FILE} and re-run ./scripts/install.sh.${RESET}\n"
+  printf "\n"
+fi
 printf "${BOLD}  Useful commands${RESET}\n"
 printf "  ${DIM}./scripts/status.sh${RESET}\n"
 printf "  ${DIM}./scripts/smoke-test.sh${RESET}\n"
