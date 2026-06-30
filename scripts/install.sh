@@ -1290,19 +1290,31 @@ login_deepsql_cli() {
     printf "  ${DIM}Run manually: deepsql login --password --email <admin-email> --url http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
     return 0
   fi
-  local label
+  local label url
   label="self-host-$(hostname -s 2>/dev/null || echo local)"
+  url="http://localhost:${DEEPSQL_BACKEND_PORT}"
   echo "Authorizing the deepsql CLI against the local instance..."
   if printf '%s' "${DEEPSQL_INITIAL_ADMIN_PASSWORD}" | deepsql login \
       --password \
       --email "${DEEPSQL_INITIAL_ADMIN_EMAIL}" \
       --password-stdin \
-      --url "http://localhost:${DEEPSQL_BACKEND_PORT}" \
+      --url "$url" \
       --label "$label"; then
-    echo "Logged in. CLI is ready for MCP use."
+    # Pin this self-host instance as the CLI's default profile. `deepsql login`
+    # only auto-defaults when NO profile exists yet, so on a machine that
+    # already has another profile (e.g. a prior cloud login) the new local one
+    # is saved but every subsequent `deepsql`/MCP call keeps talking to the old
+    # default. Make the freshly-installed instance the active profile so the
+    # customer is logged in and pointed at it without any manual step.
+    if deepsql config set-default "$url" >/dev/null 2>&1; then
+      echo "Logged in. This instance is now the default deepsql profile."
+    else
+      echo "Logged in. CLI is ready for MCP use."
+      printf "  ${DIM}If deepsql targets another instance, run: deepsql config set-default ${url}${RESET}\n"
+    fi
   else
     printf "  ${DIM}deepsql login failed - re-run manually if needed.${RESET}\n"
-    printf "  ${DIM}deepsql login --password --email ${DEEPSQL_INITIAL_ADMIN_EMAIL} --url http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
+    printf "  ${DIM}deepsql login --password --email ${DEEPSQL_INITIAL_ADMIN_EMAIL} --url ${url}${RESET}\n"
   fi
 }
 
