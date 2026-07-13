@@ -755,6 +755,38 @@ SQL
   echo "Ensured pg_stat_statements extension exists in the vault database."
 }
 
+# Repair schema drift left behind by Hibernate's ddl-auto pass.
+#
+# The self-host image has no Flyway, so the internal schema is evolved by
+# `ddl-auto=update`. Hibernate adds a new NOT NULL column WITHOUT a DEFAULT,
+# which Postgres rejects on a table that already has rows, and the backend runs
+# with halt_on_error=false — so the failure is swallowed and the container comes
+# up "healthy" against a schema that no longer matches the entities. The first
+# endpoint to touch such an entity then 500s on a missing column.
+#
+# Runs after the backend is healthy (its ddl-auto pass is done by then). The
+# reconciler is idempotent and additive, so this is a no-op on a clean install.
+reconcile_internal_schema() {
+  local script="$ROOT_DIR/scripts/reconcile-schema.sh"
+  if [[ ! -f "$script" ]]; then
+    echo "> reconcile-schema.sh not found; skipping schema reconciliation"
+    return 0
+  fi
+
+  if DEEPSQL_COMPOSE_FILE="$COMPOSE_FILE" \
+     DEEPSQL_ENV_FILE="$ENV_FILE" \
+     DEEPSQL_PROJECT_NAME="$PROJECT_NAME" \
+     bash "$script"; then
+    echo "Reconciled the internal schema against this release."
+  else
+    # Never fail the install for this: the stack is up and usable, and the
+    # operator can re-run the script by hand. But say so loudly — a silent
+    # skip here is what produced the 500s this step exists to prevent.
+    echo "warning: schema reconciliation did not complete. Some features may return" >&2
+    echo "         HTTP 500 until you run: ./scripts/reconcile-schema.sh" >&2
+  fi
+}
+
 sync_postgres_password() {
   echo "Syncing Postgres credentials with installer configuration..."
   compose exec -T -e DEEPSQL_DB_PASSWORD="$DB_PASSWORD" postgres sh -lc '
@@ -1461,6 +1493,9 @@ ensure_postgres_extensions
 ensure_scheduler_table
 wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
 wait_for_http "http://localhost:${DEEPSQL_FRONTEND_PORT}" "Frontend"
+
+# Backend is up, so its ddl-auto pass has run (and may have silently failed).
+reconcile_internal_schema
 
 bootstrap_admin
 

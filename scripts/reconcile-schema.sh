@@ -162,6 +162,22 @@ DO $$ BEGIN
       ADD COLUMN IF NOT EXISTS truncated BOOLEAN NOT NULL DEFAULT FALSE;
   END IF;
 END $$;
+
+-- saved_dashboards: the Dashboards/BI deltas (V106/V107/V108). `is_public` is the
+-- dangerous one — the entity declares it NOT NULL, so on an install that already
+-- has saved dashboards Hibernate emits an ADD COLUMN ... NOT NULL with no DEFAULT,
+-- Postgres rejects it, and every dashboard endpoint then 500s on a missing column.
+DO $$ BEGIN
+  IF to_regclass('public.saved_dashboards') IS NOT NULL THEN
+    ALTER TABLE saved_dashboards
+      ADD COLUMN IF NOT EXISTS chat_messages       TEXT,
+      ADD COLUMN IF NOT EXISTS share_token         VARCHAR(64),
+      ADD COLUMN IF NOT EXISTS is_public           BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS share_password_hash VARCHAR(100);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_dashboards_share_token
+      ON saved_dashboards (share_token) WHERE share_token IS NOT NULL;
+  END IF;
+END $$;
 SQL
 )
 
@@ -179,6 +195,10 @@ CHECKS=(
   "query_fingerprints:normalization_version"
   "resource_limits:slow_query_history_retention_days"
   "ingestion_jobs:truncated"
+  "saved_dashboards:is_public"
+  "saved_dashboards:share_token"
+  "saved_dashboards:share_password_hash"
+  "saved_dashboards:chat_messages"
 )
 
 column_exists() {
