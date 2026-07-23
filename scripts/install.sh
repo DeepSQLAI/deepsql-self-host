@@ -314,6 +314,49 @@ read_tty() {
   printf '%s' "$value"
 }
 
+read_tty_secret() {
+  local prompt="$1"
+  local value=""
+  local char
+  local old_tty
+
+  if ! has_tty; then
+    echo "Error: interactive input is required for '$prompt', but no TTY is available." >&2
+    echo "Set the required value in the environment and rerun the installer." >&2
+    exit 1
+  fi
+  if ! printf '%s' "$prompt" > /dev/tty; then
+    echo "Error: interactive input is required for '$prompt', but /dev/tty is not available." >&2
+    exit 1
+  fi
+
+  old_tty="$(stty -g < /dev/tty)"
+  # Switch to raw mode so each keypress is delivered immediately without waiting for Enter
+  stty -echo -icanon min 1 time 0 < /dev/tty
+  # Restore terminal if the user hits Ctrl+C
+  trap 'stty "$old_tty" < /dev/tty; printf "\n" > /dev/tty; trap - INT; kill -INT $$' INT
+
+  while IFS= read -r -n1 char < /dev/tty; do
+    case "$char" in
+      ''|$'\n'|$'\r')   # Enter key — end of input
+        break ;;
+      $'\x7f'|$'\b')   # Backspace/Delete — erase last character
+        if [[ ${#value} -gt 0 ]]; then
+          value="${value%?}"
+          printf '\b \b' > /dev/tty
+        fi ;;
+      *)
+        value+="$char"
+        printf '*' > /dev/tty ;;
+    esac
+  done
+
+  stty "$old_tty" < /dev/tty
+  trap - INT
+  printf '\n' > /dev/tty
+  printf '%s' "$value"
+}
+
 ensure_local_image() {
   local image_ref="$1"
   if ! run_docker image inspect "$image_ref" >/dev/null 2>&1; then
@@ -608,11 +651,11 @@ prompt_initial_admin_credentials() {
   local password="${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}"
   if is_placeholder "$password"; then
     local confirm
-    password="$(read_tty 'Initial admin password (visible, at least 12 characters): ')"
+    password="$(read_tty_secret 'Initial admin password (at least 12 characters): ')"
 
     validate_initial_admin_password "$password"
 
-    confirm="$(read_tty 'Confirm initial admin password (visible): ')"
+    confirm="$(read_tty_secret 'Confirm initial admin password: ')"
 
     if [[ "$password" != "$confirm" ]]; then
       echo "Error: admin passwords did not match." >&2
@@ -827,7 +870,8 @@ bootstrap_admin() {
   if [[ "$response" == *"Admin reset successfully"* || "$response" == *"Admin created successfully"* ]]; then
     echo "Admin bootstrap complete. Login username: admin"
     set_env_value SECURITY_ADMIN_BOOTSTRAP_ENABLED "false"
-    echo "Disabled admin bootstrap in $ENV_FILE."
+    set_env_value DEEPSQL_INITIAL_ADMIN_PASSWORD ""
+    echo "Disabled admin bootstrap and cleared admin password from $ENV_FILE."
     echo "Recreating backend with admin bootstrap disabled..."
     compose up -d backend
     wait_for_http "http://localhost:${DEEPSQL_BACKEND_PORT}/api/actuator/health" "Backend"
@@ -1514,10 +1558,9 @@ printf "${BOLD}  Access${RESET}\n"
 printf "  Frontend  ${CYAN}http://localhost:${DEEPSQL_FRONTEND_PORT}${RESET}\n"
 printf "  Backend   ${CYAN}http://localhost:${DEEPSQL_BACKEND_PORT}${RESET}\n"
 printf "\n"
-if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" || -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]]; then
-  printf "${BOLD}  Admin credentials${RESET}\n"
-  [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" ]]    && printf "  Email     ${CYAN}${DEEPSQL_INITIAL_ADMIN_EMAIL}${RESET}\n"
-  [[ -n "${DEEPSQL_INITIAL_ADMIN_PASSWORD:-}" ]] && printf "  Password  ${CYAN}${DEEPSQL_INITIAL_ADMIN_PASSWORD}${RESET}\n"
+if [[ -n "${DEEPSQL_INITIAL_ADMIN_EMAIL:-}" ]]; then
+  printf "${BOLD}  Admin account${RESET}\n"
+  printf "  Email     ${CYAN}${DEEPSQL_INITIAL_ADMIN_EMAIL}${RESET}\n"
   printf "\n"
 fi
 printf "${BOLD}  Images${RESET}\n"
